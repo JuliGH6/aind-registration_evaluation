@@ -21,6 +21,18 @@ from aind_registration_evaluation.params import EvalRegSchema
 from aind_registration_evaluation.sample import *
 from aind_registration_evaluation.util.intersection import \
     generate_overlap_slices
+from scipy.ndimage import affine_transform
+from aind_registration_evaluation.metric.small_scale import SmallImageMetrics
+from aind_registration_evaluation.util.extract_roi import get_ROIs, normalized_cross_correlation, normalized_mutual_information, mutual_information
+import statsmodels.api as sm
+import tifffile as tiff
+from aind_registration_evaluation.io._io import ImageReaderFactory
+
+import concurrent.futures
+import dask
+import dask.threaded
+import dask.multiprocessing
+from dask import delayed, compute
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -205,6 +217,15 @@ def calculate_central_value(data, central_type="mean", outlier_threshold=2):
 
     return central_value
 
+# @delayed
+def process_metric(pruned_point, metric, transform):
+    metric_name = metric.metric_type
+    point_metric = metric.calculate_metric(point=pruned_point, transform=transform)
+
+    if point_metric is not None:
+        return (metric_name, point_metric, pruned_point)
+    return None
+
 
 class EvalStitching(ArgSchemaParser):
     """
@@ -253,14 +274,12 @@ class EvalStitching(ArgSchemaParser):
 
         image_1_shape = image_1_data.shape
         image_2_shape = image_2_data.shape
-        print(image_1_shape)
 
         # calculate extent of overlap using transforms
         # in common coordinate system (assume for image 1)
         bounds_1, bounds_2 = util.calculate_bounds(
             image_1_shape, image_2_shape, transform
         )
-        print("Bounds: ", bounds_1, bounds_2)
 
         # Sample points in overlapping bounds
         points = sample.sample_points_in_overlap(
@@ -294,6 +313,28 @@ class EvalStitching(ArgSchemaParser):
                     self.args["window_size"],
                 )
             )
+
+        # with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
+        #     futures = []
+        #     for pruned_point in pruned_points:
+        #         for metric in metrics:
+        #             futures.append(executor.submit(process_metric, pruned_point, metric, transform))
+        #     for future in concurrent.futures.as_completed(futures):
+        #         # result = future.result()
+        #         # if result is not None:
+        #         #     metric_name, point_metric, pruned_point = result
+        #         #     metrics_results[metric_name]["point_metric"].append(point_metric)
+        #         #     metrics_results[metric_name]["selected_points"].append(pruned_point)
+
+        #         try:
+        #             result = future.result()
+        #             if result is not None:
+        #                 metric_name, point_metric, pruned_point = result
+        #                 metrics_results[metric_name]["point_metric"].append(point_metric)
+        #                 metrics_results[metric_name]["selected_points"].append(pruned_point)
+        #         except Exception as e:
+        #             LOGGER.error(f"Error processing metric: {e}")
+
 
         for pruned_point in pruned_points:
             for metric in metrics:
@@ -338,6 +379,51 @@ class EvalStitching(ArgSchemaParser):
                     transform,
                     metric_name,
                 )
+        
+        return metrics_results
+
+    def run_roi(self, img1_binaryThreshold, img2_binaryThreshold, maxCentroidDistance, overlapThreshold):
+        factory = ImageReaderFactory()
+        reader_instance1 = factory.create(self.args['image_1'])
+        reader_instance2 = factory.create(self.args['image_2'])
+        image1 = reader_instance1.as_numpy_array()
+        image2 = reader_instance1.as_numpy_array()
+        transformation_matrix = self.args['transform_matrix']
+        trans_image2 = affine_transform(image2, transformation_matrix)
+
+        patch_coordinates = get_ROIs(image1, trans_image2, img1_binaryThreshold, img2_binaryThreshold, maxCentroidDistance, overlapThreshold)
+
+        metrics_results = {}
+        SMI = SmallImageMetrics(reader_instance1,reader_instance1, 'mi', 1)
+        metrics = [ SMI.mutual_information]#[SMI.normalized_cross_correlation, SMI.mutual_information, SMI.normalized_mutual_information]
+
+        metrics_names = []
+        for m in self.args["metrics"]:
+            metrics_results[m] = {"selected_patch": [], "point_metric": [], 'weight': []}
+            metrics_names.append(m)
+            # metrics.append(SmallImageMetrics(reader_instance1,reader_instance1,m,1))
+
+
+        for r, vol in patch_coordinates.items():
+            for i, metric in enumerate(metrics):
+                res = metric(image1[r[0]:r[3],r[1]:r[4],r[2]:r[5]], trans_image2[r[0]:r[3],r[1]:r[4],r[2]:r[5]]).compute()
+                metrics_results[metrics_names[i]]['selected_patch'].append(r)
+                metrics_results[metrics_names[i]]['point_metric'].append(res)
+                metrics_results[metrics_names[i]]['weight'].append(vol)
+        
+        for m in metrics_names:
+            values = metrics_results[m]['point_metric']
+            weights = metrics_results[m]['weight']
+            weighted_stats = sm.stats.DescrStatsW(values, weights=weights)
+            metrics_results[m]['weighted_avg'] = weighted_stats.mean
+            metrics_results[m]['weighted_std'] = weighted_stats.std
+
+            message = f"""Computed metric: {m}
+            \nMean: {metrics_results[m]["weighted_avg"]}
+            \nStd: {metrics_results[m]["weighted_std"]}"""
+            LOGGER.info(message)
+            
+
 
     def run_misalignment(
         self,

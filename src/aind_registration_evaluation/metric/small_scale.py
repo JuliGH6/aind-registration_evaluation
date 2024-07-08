@@ -388,24 +388,9 @@ class SmallImageMetrics(ImageMetrics):
         float
             Float with the value of the mutual information error.
         """
-        joint_histogram, _, _ = np.histogram2d(patch_1, patch_2)
-        pxy = joint_histogram / np.sum(joint_histogram, dtype=self.dtype)
-        py = np.sum(pxy, axis=0, dtype=self.dtype)
-        px = np.sum(pxy, axis=1, dtype=self.dtype)
-
-        px_py = px[:, None] * py[None, :]
-        non_zero_pxy_pos = pxy > 0
-
-        mutual_information = np.sum(
-            pxy[non_zero_pxy_pos]
-            * np.log(
-                pxy[non_zero_pxy_pos] / px_py[non_zero_pxy_pos],
-                dtype=self.dtype,
-            ),
-            dtype=self.dtype,
-        )
-
-        return mutual_information
+        patch_1 = patch_1.flatten() 
+        patch_2 = patch_2.flatten() 
+        return mutual_info_score(patch_1, patch_2)
 
     def normalized_mutual_information(
         self, patch_1: ArrayLike, patch_2: ArrayLike
