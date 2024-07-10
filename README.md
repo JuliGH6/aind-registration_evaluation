@@ -85,6 +85,48 @@ These are some metric examples:
 ## Note
 > If you want to visualize points in the images, you could activate the visualize flag the package accepts. However, make sure these images are able to fix in memory.
 
+## ROI extraction and Analysis
+
+Regions of interest are defined as cells that appear in both images at relatively similar coordinates. This way, we avoid evaluating noise, other structures or areas in which only one modality shows a cell (dropouts).
+
+
+The code can be run through scripts/run with_roi.py:
+
+You should adjust config_dict for your use case:
+		- Metrics: are limited to the three metrics "ncc" ,"mi", "nmi". Should be left in this order. If not, go to src/main_qa.py  "run_roi()" and adjust the metrics list
+		- Transform matrix is currently set to identity matrix -> full overlap of images
+
+To adjust ROI extraction, set parameters in the get_roi call in main() for different modalities and intensities. It is recommended to utilize src/preProcessing.ipynb  under Visualize Binary Mask to verify the right parameters for the binary threshold. 
+	
+The following parameters are based on: img1 was a confocal image, img2 was a cortical z-stack. 
+		'img1_binaryThreshold': 0.008,
+	    'img2_binaryThreshold': 0.05, 
+	    'maxCentroidDistance': 15, 
+	    'overlapThreshold': 0.3
+	
+The necessary functions are found in src/aind_registration_evaluation/util/extract_roi.py:
+
+	1. get_props:
+		- Applies Gaussian blur to smooth the image
+		- Creates a binary mask on the image to extract the bright areas. Binary threshold should be adjusted for different images
+		- Opens the image to identify single cells more distinct
+		- Removes small object that could be rest noise of bright areas in the image which are not a cell
+		- Labels the image and extracts the region properties
+		
+	2. get_centroid_distances:
+	- Calculates distances of the centroids of each cell in one image to each cell in the other image. 
+	- A distance threshold is applied to only store the centroids that are close to each other, indicating that these identify the same cells in registered images.
+	- Centroids from img1 that all match to the same centroid in img2 but with longer distance are removed because each centroid should have a distinct match (the closest) with a centroid in the other image.
+	
+	3. Create_patches:
+	- Creates a patch around each matched centroids by adding 3 pixels around the max coordinates of the patches (limited by image bounds).
+	- Merges the patches that show more overlap than the overlap threshold, to avoid duplicate evaluations on the same area.
+
+	4. Get_ROIs:
+		a. Calls the functions above and returns a dictionary of {patch_coordinates: patch_volume}
+![image](https://github.com/JuliGH6/aind-registration_evaluation/assets/138510443/79d21f56-385f-4d94-a39b-09b7ab39fcd0)
+
+
 ## Installation
 To use the software, in the root directory, run
 ```
