@@ -85,7 +85,7 @@ These are some metric examples:
 ## Note
 > If you want to visualize points in the images, you could activate the visualize flag the package accepts. However, make sure these images are able to fix in memory.
 
-## ROI extraction and Analysis
+## ROI extraction and Analysis (Only available for 3d Images)
 
 Regions of interest are defined as cells that appear in both images at relatively similar coordinates. This way, we avoid evaluating noise, other structures or areas in which only one modality shows a cell (dropouts).
 
