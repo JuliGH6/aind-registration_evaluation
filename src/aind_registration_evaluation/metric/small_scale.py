@@ -17,6 +17,8 @@ from aind_registration_evaluation._shared.types import ArrayLike
 from aind_registration_evaluation.io import ImageReader
 
 from ._metric import ImageMetrics
+from sklearn.metrics import mutual_info_score
+from scipy.stats import entropy
 
 
 class SmallImageMetrics(ImageMetrics):
@@ -364,7 +366,7 @@ class SmallImageMetrics(ImageMetrics):
         # Multiplicating norms
         denominator = norm_patch_1 * norm_patch_2
 
-        return -(numerator / denominator)
+        return numerator / denominator
 
     def mutual_information(
         self, patch_1: ArrayLike, patch_2: ArrayLike
@@ -419,28 +421,26 @@ class SmallImageMetrics(ImageMetrics):
             Float with the value of the mutual information error.
         """
 
-        joint_histogram, _, _ = np.histogram2d(patch_1, patch_2)
+        # Check performance of float64 in large-scale datasets
+        # since converting to float64 required way more memory.
+        patch_1 = patch_1.flatten()  # .astype(np.float64)
+        patch_2 = patch_2.flatten()  # .astype(np.float64)
 
-        # Compute marginal histograms
-        joint_histogram = joint_histogram + self.eps
-        joint_histogram = joint_histogram / np.sum(
-            joint_histogram, dtype=self.dtype
-        )
+        # Compute the Mutual Information between the two image pixel distributions
+        # using skimage
+        mi = mutual_info_score(patch_1, patch_2)
 
-        py = np.sum(joint_histogram, axis=0, dtype=self.dtype)
-        px = np.sum(joint_histogram, axis=1, dtype=self.dtype)
+        # Compute the entropy of each image for the clusters
+        h_image1 = entropy(np.histogram(patch_1, bins=256)[0])
+        h_image2 = entropy(np.histogram(patch_2, bins=256)[0])
 
-        numerator = np.sum(py * np.log(px), dtype=self.dtype) + np.sum(
-            px * np.log(px), dtype=self.dtype
-        )
-        denominator = (
-            np.sum(joint_histogram * np.log(joint_histogram), dtype=self.dtype)
-            - 1
-        )
+        # Calculate Normalized Mutual Information using the formula
+        nmi = mi / np.sqrt(h_image1 * h_image2)
 
-        mutual_information = numerator / denominator
+        # Clip the NMI to ensure it's within [0, 1] due to numerical precision float64
+        nmi = np.clip(nmi, 0.0, 1.0)
 
-        return mutual_information
+        return nmi
 
     def information_theoretic_similarity(
         self, patch_1: ArrayLike, patch_2: ArrayLike

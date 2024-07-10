@@ -383,19 +383,24 @@ class EvalStitching(ArgSchemaParser):
         return metrics_results
 
     def run_roi(self, img1_binaryThreshold, img2_binaryThreshold, maxCentroidDistance, overlapThreshold):
-        factory = ImageReaderFactory()
-        reader_instance1 = factory.create(self.args['image_1'])
-        reader_instance2 = factory.create(self.args['image_2'])
-        image1 = reader_instance1.as_numpy_array()
-        image2 = reader_instance1.as_numpy_array()
+        # factory = ImageReaderFactory()
+        # reader_instance1 = factory.create(self.args['image_1'])
+        # reader_instance2 = factory.create(self.args['image_2'])
+        # image1 = reader_instance1.as_numpy_array()
+        # image2 = reader_instance1.as_numpy_array()
+
+        image1 = tiff.imread(self.args['image_1'])
+        image2 = tiff.imread(self.args['image_2'])
+
+
         transformation_matrix = self.args['transform_matrix']
         trans_image2 = affine_transform(image2, transformation_matrix)
 
         patch_coordinates = get_ROIs(image1, trans_image2, img1_binaryThreshold, img2_binaryThreshold, maxCentroidDistance, overlapThreshold)
 
-        metrics_results = {}
-        SMI = SmallImageMetrics(reader_instance1,reader_instance1, 'mi', 1)
-        metrics = [ SMI.mutual_information]#[SMI.normalized_cross_correlation, SMI.mutual_information, SMI.normalized_mutual_information]
+        metrics_results = {"num_rois": 0}
+        # SMI = SmallImageMetrics(reader_instance1,reader_instance1, 'mi', 1)
+        metrics = [normalized_cross_correlation,mutual_information,normalized_mutual_information]
 
         metrics_names = []
         for m in self.args["metrics"]:
@@ -405,12 +410,14 @@ class EvalStitching(ArgSchemaParser):
 
 
         for r, vol in patch_coordinates.items():
+            metrics_results['num_rois'] += 1
             for i, metric in enumerate(metrics):
-                res = metric(image1[r[0]:r[3],r[1]:r[4],r[2]:r[5]], trans_image2[r[0]:r[3],r[1]:r[4],r[2]:r[5]]).compute()
+                res = metric(image1[r[0]:r[3],r[1]:r[4],r[2]:r[5]], trans_image2[r[0]:r[3],r[1]:r[4],r[2]:r[5]])
                 metrics_results[metrics_names[i]]['selected_patch'].append(r)
                 metrics_results[metrics_names[i]]['point_metric'].append(res)
                 metrics_results[metrics_names[i]]['weight'].append(vol)
-        
+                
+
         for m in metrics_names:
             values = metrics_results[m]['point_metric']
             weights = metrics_results[m]['weight']
@@ -422,6 +429,7 @@ class EvalStitching(ArgSchemaParser):
             \nMean: {metrics_results[m]["weighted_avg"]}
             \nStd: {metrics_results[m]["weighted_std"]}"""
             LOGGER.info(message)
+        return metrics_results
             
 
 

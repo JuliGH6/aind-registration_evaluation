@@ -100,7 +100,7 @@ def create_patches(distances, image_shape, overlapThreshold):
         x_min = 0 if min(bbox1[2],bbox2[2])<4 else (min(bbox1[2],bbox2[2])-3)
         z_max = image_shape[0] if max(bbox1[3],bbox2[3])>(image_shape[0]-4) else (max(bbox1[3],bbox2[3])+3)
         y_max = image_shape[1] if max(bbox1[4],bbox2[4])>(image_shape[1]-4) else (max(bbox1[4],bbox2[4])+3)
-        x_max = image_shape[3] if max(bbox1[5],bbox2[5])>(image_shape[2]-4) else (max(bbox1[5],bbox2[5])+3)
+        x_max = image_shape[2] if max(bbox1[5],bbox2[5])>(image_shape[2]-4) else (max(bbox1[5],bbox2[5])+3)
         patches.append((z_min, y_min, x_min, z_max, y_max, x_max))
     
     merged_patches = []

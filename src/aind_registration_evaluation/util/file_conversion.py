@@ -9,6 +9,21 @@ import matplotlib.pyplot as plt
 
 
 def prepareFiles(confocal, warpedCortical, mask_threshold, downsampling_factor):
+    '''
+    crops and downsamples n5 files to usable tiff file and stores it in scratch
+
+    Parameters
+        ------------------------
+        confocal: filepath of the confocal image
+        warpedCortical: filepath of the cortical image
+        mask_treshold: mask to crop the picture
+        downsampling_factor: 2**downsampling factor to change resolution
+
+        Returns
+        ------------------------
+        none
+
+    '''
     if not os.path.isfile('/scratch/confocal_s0.tif'):
         n5_to_tiff(confocal, '/scratch/confocal_s0.tif', 's0')
     if not os.path.isfile('/scratch/cortical_s0.tif'):
@@ -22,7 +37,20 @@ def prepareFiles(confocal, warpedCortical, mask_threshold, downsampling_factor):
 
 
 def tiff_to_n5(tiff_filename, n5_filename, downsampling_factors):
+    '''
+    converts tiff to n5 with the specified resolution
 
+    Parameters
+        ------------------------
+        tiff_filename: input file path (string)
+        n5_filename: out file path (string)
+        downsampling_factor: 2**downsampling factor to change resolution
+
+        Returns
+        ------------------------
+        none
+
+    '''
     image_volume = tifffile.imread(tiff_filename)
     shape = image_volume.shape
     # Create an .n5 dataset
@@ -50,16 +78,58 @@ def tiff_to_n5(tiff_filename, n5_filename, downsampling_factors):
 
 
 def n5_to_tiff(n5_filename, output_path, scale_level):
+    '''
+    converts n5 to to tif with the specified resolution
+
+    Parameters
+        ------------------------
+        tiff_filename: out file path (string)
+        n5_filename: input file path (string)
+        downsampling_factor: pyramid level of resolution
+
+        Returns
+        ------------------------
+        none
+
+    '''
     f = z5py.File(n5_filename)
     image = np.array(f["c0"][scale_level])
     tifffile.imwrite(output_path, image)
 
 def n5_to_tiff_warped( n5_filename, output_path):
+    '''
+    converts the warped n5 to tiff (comes without resolution scale) in full resolution
+
+    Parameters
+        ------------------------
+        tiff_filename: out file path (string)
+        n5_filename: input file path (string)
+
+        Returns
+        ------------------------
+        none
+
+    '''
     f = z5py.File(n5_filename)
     image = np.array(f["c0"])
     tifffile.imwrite(output_path, image)
 
 def apply_mask(inFilepath, outFilepath, threshhold, newValue):
+    '''
+    applies a mask on the picture
+
+    Parameters
+        ------------------------
+        inFilepath: filepath of tifffile (string)
+        outFilepath: filepath for desired filelocation of masked image
+        threshold: intensity threshold under which the pixel will be set to newValue
+        newValue: the newValue of pixels lower than threshold
+
+        Returns
+        ------------------------
+        none
+
+    '''
     data = tifffile.imread(inFilepath)
     mask = data <= threshhold
     data[mask] = newValue
@@ -67,6 +137,22 @@ def apply_mask(inFilepath, outFilepath, threshhold, newValue):
 
 
 def apply_mask_and_crop(inFilepath_cortical, outFilepath_cortical, inFilepath_confocal, outFilepath_confocal, threshold):
+    '''
+    applies a mask on the picture and crops the image of the nonoverlapping parts of the registered images
+
+    Parameters
+        ------------------------
+        inFilepath_cortical: inFilepath of the warped image
+        outFilepath_cortical: filepath for desired filelocation of cropped cortical image
+        inFilepath_confocal: inFilepath of the target image
+        outFilepath_cortical: filepath for desired filelocation of cropped confocal image
+        threshold: intensity threshold under which the pixel will interpreted as not overlapping
+
+        Returns
+        ------------------------
+        none
+
+    '''
     data_cortical = tifffile.imread(inFilepath_cortical)
     data_confocal = tifffile.imread(inFilepath_confocal)
     data_cortical = data_cortical.astype(np.int16)
@@ -98,6 +184,20 @@ def apply_mask_and_crop(inFilepath_cortical, outFilepath_cortical, inFilepath_co
     tifffile.imwrite(outFilepath_cortical, cropped_cortical)
 
 def downsample_and_int16(tiff_path, output_path, downscale_factor):
+    '''
+    downsamples the images to a specified resolution
+
+    Parameters
+        ------------------------
+        tiff_path: input path of tiff image
+        output_path: desired file location of downsampled image
+        downscale_factor: 2**downscale factor specifies the pyramid level resolution
+
+        Returns
+        ------------------------
+        none
+
+    '''
 
     # Load the 3D TIFF image stack
     img_stack = tifffile.imread(tiff_path)
@@ -127,6 +227,22 @@ def downsample_and_int16(tiff_path, output_path, downscale_factor):
     tifffile.imwrite(output_path, resized_img_stack)
 
 def normalize_image(inFilepath, outFilepath):
+    '''
+    normalizes the image
+
+    Parameters
+        ------------------------
+        inFilepath_cortical: inFilepath of the warped image
+        outFilepath_cortical: filepath for desired filelocation of cropped cortical image
+        inFilepath_confocal: inFilepath of the target image
+        outFilepath_cortical: filepath for desired filelocation of cropped confocal image
+        threshold: intensity threshold under which the pixel will interpreted as not overlapping
+
+        Returns
+        ------------------------
+        none
+
+    '''
     image = tifffile.imread(inFilepath)
     normalized_image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
     tifffile.imwrite(outFilepath, normalized_image)
