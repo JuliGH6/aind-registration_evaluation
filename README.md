@@ -124,7 +124,6 @@ The necessary functions are found in src/aind_registration_evaluation/util/extra
 
 	4. Get_ROIs:
 		a. Calls the functions above and returns a dictionary of {patch_coordinates: patch_volume}
-![image](https://github.com/JuliGH6/aind-registration_evaluation/assets/138510443/79d21f56-385f-4d94-a39b-09b7ab39fcd0)
 
 
 ## Installation
