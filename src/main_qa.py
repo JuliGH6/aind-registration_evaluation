@@ -23,7 +23,7 @@ from aind_registration_evaluation.util.intersection import \
     generate_overlap_slices
 from scipy.ndimage import affine_transform
 from aind_registration_evaluation.metric.small_scale import SmallImageMetrics
-from aind_registration_evaluation.util.extract_roi import get_ROIs, normalized_cross_correlation, normalized_mutual_information, mutual_information
+from aind_registration_evaluation.util.extract_roi import get_ROIs, get_ROIs_cellpose, normalized_cross_correlation, normalized_mutual_information, mutual_information
 import statsmodels.api as sm
 import tifffile as tiff
 from aind_registration_evaluation.io._io import ImageReaderFactory
@@ -396,7 +396,13 @@ class EvalStitching(ArgSchemaParser):
         transformation_matrix = self.args['transform_matrix']
         trans_image2 = affine_transform(image2, transformation_matrix)
 
-        patch_coordinates = get_ROIs(image1, trans_image2, img1_binaryThreshold, img2_binaryThreshold, maxCentroidDistance, overlapThreshold)
+        # patch_coordinates = get_ROIs(image1, trans_image2, img1_binaryThreshold, img2_binaryThreshold, maxCentroidDistance, overlapThreshold)
+
+        #add the reading into cellpose
+        img1_cp = tiff.imread('/scratch/confocal_s0_cropped_dsLev1_cp.tif')
+        img2_cp = tiff.imread('/scratch/cortical_s0_cropped_dsLev1_cp.tif')
+        img2_cp_trans = affine_transform(img2_cp, transformation_matrix)
+        patch_coordinates = get_ROIs_cellpose(img1_cp, img2_cp_trans, maxCentroidDistance, overlapThreshold)
 
         metrics_results = {"num_rois": 0}
         # SMI = SmallImageMetrics(reader_instance1,reader_instance1, 'mi', 1)
@@ -427,7 +433,8 @@ class EvalStitching(ArgSchemaParser):
 
             message = f"""Computed metric: {m}
             \nMean: {metrics_results[m]["weighted_avg"]}
-            \nStd: {metrics_results[m]["weighted_std"]}"""
+            \nStd: {metrics_results[m]["weighted_std"]}
+            \nNumROIs: {metrics_results["num_rois"]}"""
             LOGGER.info(message)
         return metrics_results
             

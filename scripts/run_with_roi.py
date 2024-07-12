@@ -49,7 +49,6 @@ def main():
     duration = time_end-time_start
     print(f"Time: {duration}")
 
-    print(results)
 
 
     client.close()

@@ -5,7 +5,8 @@ import os
 from PIL import Image
 import cv2
 import matplotlib.pyplot as plt
-
+from scipy.ndimage import zoom
+from skimage import transform
 
 
 def prepareFiles(confocal, warpedCortical, mask_threshold, downsampling_factor):
@@ -170,11 +171,11 @@ def apply_mask_and_crop(inFilepath_cortical, outFilepath_cortical, inFilepath_co
     z_min_cortical, z_max_cortical = nonzeros_cortical[2].min(), nonzeros_cortical[2].max()
 
     # Ensure the cortical bounds do not exceed the confocal dimensions
-    x_min= x_min_cortical if x_min_cortical < data_confocal.shape[0] - 1 else data_confocal.shape[0] - 2
+    x_min= x_min_cortical if x_min_cortical < data_confocal.shape[0] - 1 else data_confocal.shape[0] - 1
     x_max = min(x_max_cortical, data_confocal.shape[0] - 1)
-    y_min= y_min_cortical if y_min_cortical < data_confocal.shape[1] - 1 else data_confocal.shape[1] - 2
+    y_min= y_min_cortical if y_min_cortical < data_confocal.shape[1] - 1 else data_confocal.shape[1] - 1
     y_max = min(y_max_cortical, data_confocal.shape[1] - 1)
-    z_min= z_min_cortical if z_min_cortical < data_confocal.shape[2] - 1 else data_confocal.shape[2] - 2
+    z_min= z_min_cortical if z_min_cortical < data_confocal.shape[2] - 1 else data_confocal.shape[2] - 1
     z_max = min(z_max_cortical, data_confocal.shape[2] - 1)
 
     cropped_cortical = data_cortical[x_min:x_max+1, y_min:y_max+1, z_min:z_max+1]
@@ -185,46 +186,29 @@ def apply_mask_and_crop(inFilepath_cortical, outFilepath_cortical, inFilepath_co
 
 def downsample_and_int16(tiff_path, output_path, downscale_factor):
     '''
-    downsamples the images to a specified resolution
+    Downsamples the images to a specified resolution.
 
     Parameters
-        ------------------------
-        tiff_path: input path of tiff image
-        output_path: desired file location of downsampled image
-        downscale_factor: 2**downscale factor specifies the pyramid level resolution
+    ------------------------
+    tiff_path: input path of TIFF image
+    output_path: desired file location of downsampled image
+    downscale_factor: 2**downscale_factor specifies the pyramid level resolution
 
-        Returns
-        ------------------------
-        none
-
+    Returns
+    ------------------------
+    None
     '''
 
-    # Load the 3D TIFF image stack
     img_stack = tifffile.imread(tiff_path)
 
+    # Calculate new dimensions for exactly halving the current dimensions
+    new_shape = (img_stack.shape[0] // 2**downscale_factor, img_stack.shape[1] // 2**downscale_factor, img_stack.shape[2] // 2**downscale_factor)
 
-    # Define downscaled dimensions (adjust as needed)
-    new_width = img_stack.shape[2] // 2 ** downscale_factor
-    new_height = img_stack.shape[1] // 2 ** downscale_factor
+    # Resize the entire image stack using skimage
+    downsampled_img_stack = transform.resize(img_stack, new_shape, order=3, preserve_range=True).astype(np.int16)
 
-    # Initialize an empty list to store resized images
-    resized_slices = []
-
-    # Resize each slice (2D image) in the 3D stack
-    for slice_idx in range(img_stack.shape[0]):
-        # Convert each 2D slice to PIL Image
-        slice_img = Image.fromarray(img_stack[slice_idx, :, :])
-
-        # Resize the slice
-        resized_slice = slice_img.resize((new_width, new_height), Image.LANCZOS)  # Using Lanczos filter
-
-        # Append resized slice to the list
-        resized_slices.append(np.array(resized_slice))
-
-    # Convert the list of resized slices back to a numpy array
-    resized_img_stack = np.array(resized_slices).astype(np.int16)
-
-    tifffile.imwrite(output_path, resized_img_stack)
+    # Save the downsampled image stack
+    tifffile.imwrite(output_path, downsampled_img_stack)
 
 def normalize_image(inFilepath, outFilepath):
     '''
@@ -246,3 +230,28 @@ def normalize_image(inFilepath, outFilepath):
     image = tifffile.imread(inFilepath)
     normalized_image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
     tifffile.imwrite(outFilepath, normalized_image)
+
+
+def resample_image(image, current_resolution, desired_resolution):
+    """
+    Resample a 3D image to the desired resolution.
+    
+    :param image: 3D numpy array with shape (z, y, x)
+    :param current_resolution: Tuple of current resolutions (z_res, y_res, x_res)
+    :param desired_resolution: Desired resolution (z_res, y_res, x_res)
+    :return: Resampled 3D numpy array
+    """
+    current_z_res, current_y_res, current_x_res = current_resolution
+    desired_z_res, desired_y_res, desired_x_res = desired_resolution
+    
+    # Calculate the zoom factors for each dimension
+    zoom_factors = (
+        current_z_res / desired_z_res,
+        current_y_res / desired_y_res,
+        current_x_res / desired_x_res
+    )
+    
+    # Resample the image using the zoom factors
+    resampled_image = zoom(image, zoom_factors, order=1)  # Using linear interpolation (order=1)
+    
+    return resampled_image

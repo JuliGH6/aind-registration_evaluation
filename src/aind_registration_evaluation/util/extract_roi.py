@@ -2,7 +2,7 @@ import numpy as np
 from skimage import io, filters, morphology, exposure, measure
 import matplotlib.pyplot as plt
 import tifffile as tiff
-from sklearn.metrics import mutual_info_score
+from sklearn.metrics import mutual_info_score, normalized_mutual_info_score
 from scipy.stats import entropy
 
 def get_props(image, binaryThreshold):
@@ -116,7 +116,7 @@ def create_patches(distances, image_shape, overlapThreshold):
                 if volume_overlap/volume_max_patch > overlapThreshold:
                     merged_patches[i] = max_patch
                     if i<(len(merged_patches)-1):
-                        patches.append(merged_patches[i+1:])
+                        patches += merged_patches[i+1:]
                         merged_patches = merged_patches[:i+1]
                     merged = True
                     break
@@ -130,7 +130,7 @@ def get_ROIs(img1, img2, img1_binaryThreshold, img2_binaryThreshold, maxCentroid
 
         Parameters
         ------------------------
-        img1, img2: numpy array of both images. Must be 3d
+        img1, img2: numpy array of both images. Must be 3d of the same shape
 
         img1_binaryThreshold, img2_binaryThreshold: threshold to create a binary image based on intensity (int)
         
@@ -144,10 +144,38 @@ def get_ROIs(img1, img2, img1_binaryThreshold, img2_binaryThreshold, maxCentroid
     '''
     img1_props = get_props(img1, img1_binaryThreshold)
     img2_props = get_props(img2, img2_binaryThreshold)
+    print("ConfocalProps:", len(img1_props), "CorticalProps:", len(img2_props))
     distances = get_centroid_distances(img1_props, img2_props, maxCentroidDistance)
+    print("Cell Matches:", len(distances))
     patches = create_patches(distances, img1.shape, overlapThreshold)
     patch_dict = {r: ((r[3]-r[0]) * (r[4]-r[1]) * (r[5]-r[2])) for r in patches}
     return patch_dict
+
+def get_ROIs_cellpose(img1, img2, maxCentroidDistance, overlapThreshold):
+    '''
+        Calls the functions above and returns a dictionary of {patch_coordinates: patch_volume}
+
+        Parameters
+        ------------------------
+        img1, img2: receives the labeled masks from cellpose (only 3d and must have same shape)
+
+        maxCentroidDistance: pixel count for allowed distance of centroids to be seen as a match
+        
+        overlapThreshold: volume overlap theshold above which two patches are merged to their max coordinates (float)
+
+        Returns
+        ------------------------
+        dictionary of {patch_coordinates: patch_volume}
+    '''
+    img1_regions = measure.regionprops(img1)
+    img2_regions = measure.regionprops(img2)
+    print("ConfocalProps:", len(img1_regions), "CorticalProps:", len(img2_regions))
+    cp_centroid_dist = get_centroid_distances(img1_regions, img2_regions, maxCentroidDistance)
+    print("Cell Matches:", len(cp_centroid_dist))
+    cp_patches = create_patches(cp_centroid_dist, img1.shape, 0.3)
+    patch_dict = {r: ((r[3]-r[0]) * (r[4]-r[1]) * (r[5]-r[2])) for r in cp_patches}
+    return patch_dict
+
 
 
 def normalized_mutual_information(patch_1, patch_2
@@ -176,26 +204,12 @@ def normalized_mutual_information(patch_1, patch_2
             Float with the value of the mutual information error.
         """
 
-        # Check performance of float64 in large-scale datasets
-        # since converting to float64 required way more memory.
         patch_1 = patch_1.flatten()  # .astype(np.float64)
         patch_2 = patch_2.flatten()  # .astype(np.float64)
 
         # Compute the Mutual Information between the two image pixel distributions
         # using skimage
-        mi = mutual_info_score(patch_1, patch_2)
-
-        # Compute the entropy of each image for the clusters
-        h_image1 = entropy(np.histogram(patch_1, bins=256)[0])
-        h_image2 = entropy(np.histogram(patch_2, bins=256)[0])
-
-        # Calculate Normalized Mutual Information using the formula
-        nmi = mi / np.sqrt(h_image1 * h_image2)
-
-        # Clip the NMI to ensure it's within [0, 1] due to numerical precision float64
-        nmi = np.clip(nmi, 0.0, 1.0)
-
-        return nmi
+        return normalized_mutual_info_score(patch_1, patch_2, average_method='geometric')
 
 def normalized_cross_correlation(patch_1, patch_2
     ) -> float:

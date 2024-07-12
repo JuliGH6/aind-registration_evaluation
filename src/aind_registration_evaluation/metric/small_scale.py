@@ -17,7 +17,7 @@ from aind_registration_evaluation._shared.types import ArrayLike
 from aind_registration_evaluation.io import ImageReader
 
 from ._metric import ImageMetrics
-from sklearn.metrics import mutual_info_score
+from sklearn.metrics import mutual_info_score, normalized_mutual_info_score
 from scipy.stats import entropy
 
 
@@ -428,19 +428,7 @@ class SmallImageMetrics(ImageMetrics):
 
         # Compute the Mutual Information between the two image pixel distributions
         # using skimage
-        mi = mutual_info_score(patch_1, patch_2)
-
-        # Compute the entropy of each image for the clusters
-        h_image1 = entropy(np.histogram(patch_1, bins=256)[0])
-        h_image2 = entropy(np.histogram(patch_2, bins=256)[0])
-
-        # Calculate Normalized Mutual Information using the formula
-        nmi = mi / np.sqrt(h_image1 * h_image2)
-
-        # Clip the NMI to ensure it's within [0, 1] due to numerical precision float64
-        nmi = np.clip(nmi, 0.0, 1.0)
-
-        return nmi
+        return normalized_mutual_info_score(patch_1, patch_2, average_method='geometric')
 
     def information_theoretic_similarity(
         self, patch_1: ArrayLike, patch_2: ArrayLike
