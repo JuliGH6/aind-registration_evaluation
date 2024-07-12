@@ -58,18 +58,19 @@ def get_centroid_distances(props1, props2, distanceThreshold):
                 while dist in distances:
                     dist += 0.0001
                     addedDist += 0.0001
-                distances[dist] = {'Label1': p1.label, 'Centroid1': p1.centroid, 'Bbox1': p1.bbox,
-                                    'Label2': p2.label, 'Centroid2': p2.centroid, 'Bbox2': p2.bbox,
-                                    'addedDist': addedDist}
+                                # distances[dist] = {'Label1': p1.label, 'Centroid1': p1.centroid, 'Bbox1': p1.bbox,
+                #                     'Label2': p2.label, 'Centroid2': p2.centroid, 'Bbox2': p2.bbox,
+                #                     'addedDist': addedDist}
+                distances[dist] = {'R1': p1, 'R2': p2,'addedDist': addedDist}
     sortedDistances = {k: v for k, v in sorted(distances.items(), key=lambda item: int(item[0]) + item[1]['addedDist'])}
     p1Used = set()
     p2Used = set()
     resultDistances = {}
     for k,v in sortedDistances.items():
-        if v['Label1'] in p1Used or v['Label2'] in p2Used: continue
+        if v['R1'].label in p1Used or v['R2'].label in p2Used: continue
         resultDistances[k] = v
-        p1Used.add(v['Label1'])
-        p2Used.add(v['Label2'])
+        p1Used.add(v['R1'].label)
+        p2Used.add(v['R2'].label)
     return resultDistances
 
 def create_patches(distances, image_shape, overlapThreshold):
@@ -79,9 +80,7 @@ def create_patches(distances, image_shape, overlapThreshold):
 
         Parameters
         ------------------------
-       distances: Dictionary of shape {distance: {'Label1': p1.label, 'Centroid1': p1.centroid, 'Bbox1': p1.bbox,
-                                    'Label2': p2.label, 'Centroid2': p2.centroid, 'Bbox2': p2.bbox,
-                                    'addedDist': addedDist}}
+       distances: Dictionary of shape {distance:{'R1': p1, 'R2': p2,'addedDist': addedDist}}
        
        image_shape: shape of the two images must be the same. Either can be passed in the form Tuple(z,y,x)
 
@@ -93,8 +92,8 @@ def create_patches(distances, image_shape, overlapThreshold):
     '''
     patches = []
     for distance, info in distances.items():
-        bbox1 = info['Bbox1']
-        bbox2 = info['Bbox2']
+        bbox1 = info['R1'].bbox
+        bbox2 = info['R2'].bbox
         z_min = 0 if min(bbox1[0],bbox2[0])<4 else (min(bbox1[0],bbox2[0])-3) 
         y_min = 0 if min(bbox1[1],bbox2[1])<4 else (min(bbox1[1],bbox2[1])-3)
         x_min = 0 if min(bbox1[2],bbox2[2])<4 else (min(bbox1[2],bbox2[2])-3)
