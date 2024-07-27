@@ -176,7 +176,7 @@ def create_random_patches(distances, image_1_shape):
         patches.append((coord1,coord2))
     return patches
 
-def get_ROIs_cellpose(img1, img2, maxCentroidDistance=10, make_mask=False, img1_binaryThreshold=0.05, img2_binaryThreshold=0.008,, overlapThreshold=0.3):
+def get_ROIs_cellpose(img1, img2, maxCentroidDistance=10, make_mask=False, img1_binaryThreshold=0.05, img2_binaryThreshold=0.008, overlapThreshold=0.3):
     '''
     - Extracts regions of interest (ROIs) from two images based on their centroids and a specified maximum centroid distance.
     - Computes centroid distances between two images and creates patches around matched centroids.

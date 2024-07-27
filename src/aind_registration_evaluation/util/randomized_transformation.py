@@ -104,6 +104,5 @@ def create_transformation_matrices(image_shape ):
         final_transformation = centered_transformation @ translation_matrix
 
         matrices.append(final_transformation.tolist())
-        print(final_transformation)
 
     return matrices
