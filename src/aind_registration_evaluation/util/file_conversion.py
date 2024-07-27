@@ -7,6 +7,7 @@ import cv2
 import matplotlib.pyplot as plt
 from scipy.ndimage import zoom
 from skimage import transform
+from skimage.exposure import rescale_intensity
 
 
 def prepareFiles(confocal, warpedCortical, mask_threshold, downsampling_factor):
@@ -14,15 +15,15 @@ def prepareFiles(confocal, warpedCortical, mask_threshold, downsampling_factor):
     crops and downsamples n5 files to usable tiff file and stores it in scratch
 
     Parameters
-        ------------------------
-        confocal: filepath of the confocal image
-        warpedCortical: filepath of the cortical image
-        mask_treshold: mask to crop the picture
-        downsampling_factor: 2**downsampling factor to change resolution
+    ------------------------
+    confocal: filepath of the confocal image
+    warpedCortical: filepath of the cortical image
+    mask_treshold: mask to crop the picture
+    downsampling_factor: 2**downsampling factor to change resolution
 
-        Returns
-        ------------------------
-        none
+    Returns
+    ------------------------
+    none
 
     '''
     if not os.path.isfile('/scratch/confocal_s0.tif'):
@@ -42,14 +43,14 @@ def tiff_to_n5(tiff_filename, n5_filename, downsampling_factors):
     converts tiff to n5 with the specified resolution
 
     Parameters
-        ------------------------
-        tiff_filename: input file path (string)
-        n5_filename: out file path (string)
-        downsampling_factor: 2**downsampling factor to change resolution
+    ------------------------
+    tiff_filename: input file path (string)
+    n5_filename: out file path (string)
+    downsampling_factor: 2**downsampling factor to change resolution
 
-        Returns
-        ------------------------
-        none
+    Returns
+    ------------------------
+    none
 
     '''
     image_volume = tifffile.imread(tiff_filename)
@@ -83,14 +84,14 @@ def n5_to_tiff(n5_filename, output_path, scale_level):
     converts n5 to to tif with the specified resolution
 
     Parameters
-        ------------------------
-        tiff_filename: out file path (string)
-        n5_filename: input file path (string)
-        downsampling_factor: pyramid level of resolution
+    ------------------------
+    tiff_filename: out file path (string)
+    n5_filename: input file path (string)
+    downsampling_factor: pyramid level of resolution
 
-        Returns
-        ------------------------
-        none
+    Returns
+    ------------------------
+    none
 
     '''
     f = z5py.File(n5_filename)
@@ -102,13 +103,13 @@ def n5_to_tiff_warped( n5_filename, output_path):
     converts the warped n5 to tiff (comes without resolution scale) in full resolution
 
     Parameters
-        ------------------------
-        tiff_filename: out file path (string)
-        n5_filename: input file path (string)
+    ------------------------
+    tiff_filename: out file path (string)
+    n5_filename: input file path (string)
 
-        Returns
-        ------------------------
-        none
+    Returns
+    ------------------------
+    none
 
     '''
     f = z5py.File(n5_filename)
@@ -120,15 +121,15 @@ def apply_mask(inFilepath, outFilepath, threshhold, newValue):
     applies a mask on the picture
 
     Parameters
-        ------------------------
-        inFilepath: filepath of tifffile (string)
-        outFilepath: filepath for desired filelocation of masked image
-        threshold: intensity threshold under which the pixel will be set to newValue
-        newValue: the newValue of pixels lower than threshold
+    ------------------------
+    inFilepath: filepath of tifffile (string)
+    outFilepath: filepath for desired filelocation of masked image
+    threshold: intensity threshold under which the pixel will be set to newValue
+    newValue: the newValue of pixels lower than threshold
 
-        Returns
-        ------------------------
-        none
+    Returns
+    ------------------------
+    none
 
     '''
     data = tifffile.imread(inFilepath)
@@ -142,16 +143,16 @@ def apply_mask_and_crop(inFilepath_cortical, outFilepath_cortical, inFilepath_co
     applies a mask on the picture and crops the image of the nonoverlapping parts of the registered images
 
     Parameters
-        ------------------------
-        inFilepath_cortical: inFilepath of the warped image
-        outFilepath_cortical: filepath for desired filelocation of cropped cortical image
-        inFilepath_confocal: inFilepath of the target image
-        outFilepath_cortical: filepath for desired filelocation of cropped confocal image
-        threshold: intensity threshold under which the pixel will interpreted as not overlapping
+    ------------------------
+    inFilepath_cortical: inFilepath of the warped image
+    outFilepath_cortical: filepath for desired filelocation of cropped cortical image
+    inFilepath_confocal: inFilepath of the target image
+    outFilepath_cortical: filepath for desired filelocation of cropped confocal image
+    threshold: intensity threshold under which the pixel will interpreted as not overlapping
 
-        Returns
-        ------------------------
-        none
+    Returns
+    ------------------------
+    none
 
     '''
     data_cortical = tifffile.imread(inFilepath_cortical)
@@ -215,43 +216,14 @@ def normalize_image(inFilepath, outFilepath):
     normalizes the image
 
     Parameters
-        ------------------------
-        inFilepath_cortical: inFilepath of the warped image
-        outFilepath_cortical: filepath for desired filelocation of cropped cortical image
-        inFilepath_confocal: inFilepath of the target image
-        outFilepath_cortical: filepath for desired filelocation of cropped confocal image
-        threshold: intensity threshold under which the pixel will interpreted as not overlapping
+    ------------------------
+    inFilePath: location of the image
+    outFilepth: location of the normalized image
 
-        Returns
-        ------------------------
-        none
-
+    Returns
+    ------------------------
+    none
     '''
     image = tifffile.imread(inFilepath)
-    normalized_image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
+    normalized_image = rescale_intensity(image, in_range='image', out_range=(-32768, 32767)).astype(np.int16)
     tifffile.imwrite(outFilepath, normalized_image)
-
-
-def resample_image(image, current_resolution, desired_resolution):
-    """
-    Resample a 3D image to the desired resolution.
-    
-    :param image: 3D numpy array with shape (z, y, x)
-    :param current_resolution: Tuple of current resolutions (z_res, y_res, x_res)
-    :param desired_resolution: Desired resolution (z_res, y_res, x_res)
-    :return: Resampled 3D numpy array
-    """
-    current_z_res, current_y_res, current_x_res = current_resolution
-    desired_z_res, desired_y_res, desired_x_res = desired_resolution
-    
-    # Calculate the zoom factors for each dimension
-    zoom_factors = (
-        current_z_res / desired_z_res,
-        current_y_res / desired_y_res,
-        current_x_res / desired_x_res
-    )
-    
-    # Resample the image using the zoom factors
-    resampled_image = zoom(image, zoom_factors, order=1)  # Using linear interpolation (order=1)
-    
-    return resampled_image

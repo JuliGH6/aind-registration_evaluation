@@ -1,9 +1,8 @@
 import numpy as np
-from skimage import io, filters, morphology, exposure, measure
-import matplotlib.pyplot as plt
+from skimage import filters, morphology, measure
+from scipy.spatial import KDTree
 import tifffile as tiff
-from sklearn.metrics import mutual_info_score, normalized_mutual_info_score
-from scipy.stats import entropy
+import random
 
 def get_props(image, binaryThreshold):
     '''
@@ -33,44 +32,50 @@ def get_props(image, binaryThreshold):
 
 def get_centroid_distances(props1, props2, distanceThreshold):
     '''
-        - Calculates distances of the centroids of each cell in one image to each cell in the other image. 
-        - A distance threshold is applied to only store the centroids that are close to each other, indicating that these identify the same cells in registered images.
-        - Centroids from img1 that all match to the same centroid in img2 but with longer distance are removed because each centroid should have a distinct match (the closest) with a centroid in the other image.
+    - Calculates distances of the centroids of each cell in one image to each cell in the other image.
+    - A distance threshold is applied to only store the centroids that are close to each other, indicating that these identify the same cells in registered images.
+    - Centroids from img1 that all match to the same centroid in img2 but with longer distance are removed because each centroid should have a distinct match (the closest) with a centroid in the other image.
 
-        Parameters
-        ------------------------
-        props1, props2: regionprops list from both images (see https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops)
-        
-        distanceThreshold: pixel count for allowed distance of centroids to be seen as a match
+    Parameters
+    ------------------------
+    props1, props2: regionprops list from both images (see https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops)
 
-        Returns
-        ------------------------
-        Dictionary of shape {distance: {'Label1': p1.label, 'Centroid1': p1.centroid, 'Bbox1': p1.bbox,
-                                    'Label2': p2.label, 'Centroid2': p2.centroid, 'Bbox2': p2.bbox,
-                                    'addedDist': addedDist}}
+    distanceThreshold: pixel count for allowed distance of centroids to be seen as a match
+
+    Returns
+    ------------------------
+    Dictionary of shape {distance: {'R1': p1, 'R2': p2,'addedDist': addedDist}}
     '''
+    centroids1 = np.array([p.centroid for p in props1])
+    centroids2 = np.array([p.centroid for p in props2])
+
+    tree = KDTree(centroids2)
     distances = {}
-    for p1 in props1:
-        for p2 in props2:
+
+    balls = tree.query_ball_point(centroids1, distanceThreshold)
+
+    for i_p1, b in enumerate(balls):
+        for i_p2 in b:
+            p1 = props1[i_p1]
+            p2 = props2[i_p2]
             dist = np.linalg.norm(np.array(p1.centroid) - np.array(p2.centroid))
-            if dist < distanceThreshold:
-                addedDist = 0
-                while dist in distances:
-                    dist += 0.0001
-                    addedDist += 0.0001
-                                # distances[dist] = {'Label1': p1.label, 'Centroid1': p1.centroid, 'Bbox1': p1.bbox,
-                #                     'Label2': p2.label, 'Centroid2': p2.centroid, 'Bbox2': p2.bbox,
-                #                     'addedDist': addedDist}
-                distances[dist] = {'R1': p1, 'R2': p2,'addedDist': addedDist}
-    sortedDistances = {k: v for k, v in sorted(distances.items(), key=lambda item: int(item[0]) + item[1]['addedDist'])}
+            addedDist = 0
+            while dist in distances:
+                dist += 0.0001
+                addedDist += 0.0001
+            distances[dist] = {'R1': p1, 'R2': p2,'addedDist': addedDist}
+
+    sortedDistances = {k: v for k, v in sorted(distances.items(), key=lambda item: item[0] + item[1]['addedDist'])}
     p1Used = set()
     p2Used = set()
     resultDistances = {}
-    for k,v in sortedDistances.items():
-        if v['R1'].label in p1Used or v['R2'].label in p2Used: continue
+    for k, v in sortedDistances.items():
+        if v['R1'].label in p1Used or v['R2'].label in p2Used:
+            continue
         resultDistances[k] = v
         p1Used.add(v['R1'].label)
         p2Used.add(v['R2'].label)
+
     return resultDistances
 
 def create_patches(distances, image_shape, overlapThreshold):
@@ -123,169 +128,225 @@ def create_patches(distances, image_shape, overlapThreshold):
             merged_patches.append((z_min, y_min, x_min, z_max, y_max, x_max))
     return merged_patches
 
+def create_random_patches(distances, image_1_shape):
+    '''
+    - Generates random patches around centroids from two images.
+    - Shuffles centroids from the second image and pairs them with centroids from the first image.
+    - Creates patches of fixed size (31x31x31) around each centroid pair if the centroid is within image bounds.
+
+    Parameters
+    ------------------------
+    distances: Dictionary of shape {distance: {'R1': p1, 'R2': p2, 'addedDist': addedDist}}
+        Dictionary containing region properties for the two images. The dictionary values should have keys 'R1' and 'R2' representing the properties of regions in image 1 and image 2 respectively.
+
+    image_1_shape: Tuple of shape (z, y, x)
+        Shape of the image to ensure generated patches are within the image bounds.
+
+    Returns
+    ------------------------
+    List of tuples
+        Each tuple contains two sets of coordinates representing the patches around centroids from the two images:
+        (coord1, coord2)
+        where coord1 and coord2 are tuples of the form (z_min, y_min, x_min, z_max, y_max, x_max) defining the patch boundaries.
+    '''
+    patches = []
+    r1_values = [v['R1'] for v in distances.values()]
+    r2_values = [v['R2'] for v in distances.values()]
+    
+    # Shuffle R2 values
+    random.shuffle(r2_values)
+    
+    # Create pairs of R1 and shuffled R2
+    paired_list = list(zip(r1_values, r2_values))
+    for r1,r2 in paired_list:
+        c1_float, c2_float = r1.centroid, r2.centroid
+        c1 = (np.round(c1_float[0]).astype(int),np.round(c1_float[1]).astype(int),np.round(c1_float[2]).astype(int))
+        c2 = (np.round(c2_float[0]).astype(int),np.round(c2_float[1]).astype(int),np.round(c2_float[2]).astype(int))
+        if c1[0]-15<0 or c1[1]-15<0 or c1[2]-15<0 or c1[0]+15>image_1_shape[0] or c1[1]+15>image_1_shape[1] or c1[2]+15>image_1_shape[2]: continue
+        if c2[0]-15<0 or c2[1]-15<0 or c2[2]-15<0 or c2[0]+15>image_1_shape[0] or c2[1]+15>image_1_shape[1] or c2[2]+15>image_1_shape[2]: continue
+        coord1 = (c1[0]-15, c1[1]-15, c1[2]-15, c1[0]+15, c1[1]+15, c1[2]+15)
+        coord2 = (c2[0]-15, c2[1]-15, c2[2]-15, c2[0]+15, c2[1]+15, c2[2]+15)
+        patches.append((coord1,coord2))
+    return patches
+
+
 def get_ROIs(img1, img2, img1_binaryThreshold, img2_binaryThreshold, maxCentroidDistance, overlapThreshold):
     '''
-        Calls the functions above and returns a dictionary of {patch_coordinates: patch_volume}
+    - Extracts regions of interest (ROIs) from two images based on their centroids and specified thresholds.
+    - Applies image processing steps to identify cells and match centroids between two images.
+    - Generates patches around matched centroids and computes their sizes.
 
-        Parameters
-        ------------------------
-        img1, img2: numpy array of both images. Must be 3d of the same shape
+    Parameters
+    ------------------------
+    img1: 3D numpy array
+        The first image from which to extract cell properties.
 
-        img1_binaryThreshold, img2_binaryThreshold: threshold to create a binary image based on intensity (int)
-        
-        maxCentroidDistance: pixel count for allowed distance of centroids to be seen as a match
-        
-        overlapThreshold: volume overlap theshold above which two patches are merged to their max coordinates (float)
+    img2: 3D numpy array
+        The second image from which to extract cell properties.
 
-        Returns
-        ------------------------
-        dictionary of {patch_coordinates: patch_volume}
+    img1_binaryThreshold: int
+        Binary threshold for creating a binary image from the first image to identify bright areas.
+
+    img2_binaryThreshold: int
+        Binary threshold for creating a binary image from the second image to identify bright areas.
+
+    maxCentroidDistance: float
+        Maximum allowed distance between centroids from the two images to consider them as matching.
+
+    overlapThreshold: float
+        Volume overlap threshold above which two patches are merged to avoid duplicate evaluations.
+
+    Returns
+    ------------------------
+    patch_dict: Dictionary
+        A dictionary where the keys are tuples representing the coordinates of the patches (z_min, y_min, x_min, z_max, y_max, x_max)
+        and the values are the volumes of these patches.
+
+    len_img1_regions: int
+        The number of regions identified in the first image.
+
+    len_img2_regions: int
+        The number of regions identified in the second image.
+
+    len_distances: int
+        The number of centroid matches found between the two images.
     '''
     img1_props = get_props(img1, img1_binaryThreshold)
     img2_props = get_props(img2, img2_binaryThreshold)
-    print("ConfocalProps:", len(img1_props), "CorticalProps:", len(img2_props))
     distances = get_centroid_distances(img1_props, img2_props, maxCentroidDistance)
-    print("Cell Matches:", len(distances))
     patches = create_patches(distances, img1.shape, overlapThreshold)
     patch_dict = {r: ((r[3]-r[0]) * (r[4]-r[1]) * (r[5]-r[2])) for r in patches}
-    return patch_dict
+    return patch_dict, len(img1_regions), len(img2_regions), len(distances)
 
-def get_ROIs_cellpose(img1, img2, maxCentroidDistance, overlapThreshold):
+def get_ROIs_cellpose(img1, img2, maxCentroidDistance):
     '''
-        Calls the functions above and returns a dictionary of {patch_coordinates: patch_volume}
+    - Extracts regions of interest (ROIs) from two images based on their centroids and a specified maximum centroid distance.
+    - Computes centroid distances between two images and creates patches around matched centroids.
+    - Generates a dictionary of patch coordinates and their corresponding volumes.
 
-        Parameters
-        ------------------------
-        img1, img2: receives the labeled masks from cellpose (only 3d and must have same shape)
+    Parameters
+    ------------------------
+    img1: 3D numpy array
+        The first image from which to extract cell properties.
 
-        maxCentroidDistance: pixel count for allowed distance of centroids to be seen as a match
-        
-        overlapThreshold: volume overlap theshold above which two patches are merged to their max coordinates (float)
+    img2: 3D numpy array
+        The second image from which to extract cell properties.
 
-        Returns
-        ------------------------
-        dictionary of {patch_coordinates: patch_volume}
+    maxCentroidDistance: float
+        Maximum allowed distance between centroids from the two images to consider them as matching.
+
+    Returns
+    ------------------------
+    patch_dict: Dictionary
+        A dictionary where the keys are tuples representing the coordinates of the patches (z_min, y_min, x_min, z_max, y_max, x_max)
+        and the values are the volumes of these patches.
+
+    len_img1_regions: int
+        The number of regions identified in the first image.
+
+    len_img2_regions: int
+        The number of regions identified in the second image.
+
+    len_cp_centroid_dist: int
+        The number of centroid matches found between the two images based on the maximum centroid distance.
     '''
     img1_regions = measure.regionprops(img1)
     img2_regions = measure.regionprops(img2)
-    print("ConfocalProps:", len(img1_regions), "CorticalProps:", len(img2_regions))
     cp_centroid_dist = get_centroid_distances(img1_regions, img2_regions, maxCentroidDistance)
-    print("Cell Matches:", len(cp_centroid_dist))
     cp_patches = create_patches(cp_centroid_dist, img1.shape, 0.3)
     patch_dict = {r: ((r[3]-r[0]) * (r[4]-r[1]) * (r[5]-r[2])) for r in cp_patches}
-    return patch_dict
+    return patch_dict, len(img1_regions), len(img2_regions), len(cp_centroid_dist)
 
 
+def get_ROIs_random_matching(img1, img2, maxCentroidDistance):
+    '''
+    - Extracts regions of interest (ROIs) from two images by randomly matching centroids.
+    - Computes centroid distances between two images and creates random patches around matched centroids.
+    - Generates a list of patch coordinates for random matching of centroids between the images.
 
-def normalized_mutual_information(patch_1, patch_2
-    ) -> float:
-        """
-        Method to compute the mutual information error metric using numpy.
-        Note: Check the used dtype to reach a higher precision in the metric
+    Parameters
+    ------------------------
+    img1: 3D numpy array
+        The first image from which to extract cell properties.
 
-        See: Normalized Mutual Information of: A normalized entropy
-        measure of 3-D medical image alignment,
-        Studholme,  jhill & jhawkes (1998).
+    img2: 3D numpy array
+        The second image from which to extract cell properties.
 
-        Parameters
-        ------------------------
-        patch_1: ArrayLike
-            2D/3D patch of extracted from the image 1
-            and based on a windowed point.
+    maxCentroidDistance: float
+        Maximum allowed distance between centroids from the two images to consider them as matching.
 
-        patch_2: ArrayLike
-            2D/3D patch of extracted from the image 2
-            and based on a windowed point.
+    Returns
+    ------------------------
+    cp_patches: List of tuples
+        A list of tuples where each tuple contains two sets of coordinates (coord1, coord2) representing the patches around matched centroids.
 
-        Returns
-        ------------------------
-        float
-            Float with the value of the mutual information error.
-        """
+    len_img1_regions: int
+        The number of regions identified in the first image.
 
-        patch_1 = patch_1.flatten()  # .astype(np.float64)
-        patch_2 = patch_2.flatten()  # .astype(np.float64)
+    len_img2_regions: int
+        The number of regions identified in the second image.
 
-        # Compute the Mutual Information between the two image pixel distributions
-        # using skimage
-        return normalized_mutual_info_score(patch_1, patch_2, average_method='geometric')
+    len_cp_centroid_dist: int
+        The number of centroid matches found between the two images based on the maximum centroid distance.
+    '''
+    img1_regions = measure.regionprops(img1)
+    img2_regions = measure.regionprops(img2)
+    cp_centroid_dist = get_centroid_distances(img1_regions, img2_regions, maxCentroidDistance)
+    cp_patches = create_random_patches(cp_centroid_dist, img1.shape)
+    return cp_patches, len(img1_regions), len(img2_regions), len(cp_centroid_dist)
 
-def normalized_cross_correlation(patch_1, patch_2
-    ) -> float:
-        """
-        Method to compute the normalized cross correlation error
-        metric based on ITK snap implementation using numpy.
-        See detailed description in
-        https://itk.org/Doxygen/html/classitk_1_1CorrelationImageToImageMetricv4.html
 
-        Parameters
-        ------------------------
-        patch_1: ArrayLike
-            2D/3D patch of extracted from the image 1
-            and based on a windowed point.
+def create_matching_mask(image1 , image2, maxCentroidDistance, saveImages=False):
+    '''
+    - Creates a matching mask for two images by labeling and highlighting the regions corresponding to matching centroids.
+    - Generates binary masks where pixels corresponding to matched centroids are labeled with unique identifiers.
+    - Optionally saves the resulting masks as TIFF images.
 
-        patch_2: ArrayLike
-            2D/3D patch of extracted from the image 2
-            and based on a windowed point.
+    Parameters
+    ------------------------
+    image1: 3D numpy array
+        The first image on which to create a matching mask.
 
-        Returns
-        ------------------------
-        float
-            Float with the value of the normalized
-            cross correlation error.
-        """
+    image2: 3D numpy array
+        The second image on which to create a matching mask.
 
-        if patch_1.ndim != 1:
-            patch_1 = patch_1.flatten()
+    maxCentroidDistance: float
+        Maximum allowed distance between centroids from the two images to consider them as matching.
 
-        if patch_2.ndim != 1:
-            patch_2 = patch_2.flatten()
+    saveImages: bool, optional
+        Whether to save the resulting masks as TIFF images. Defaults to False.
 
-        if patch_1.shape != patch_2.shape:
-            raise ValueError("Images must have the same shape")
+    Returns
+    ------------------------
+    Tuple of 3D numpy arrays
+        - The first array contains the matching mask for the first image.
+        - The second array contains the matching mask for the second image.
+    '''
+    img1_regions = measure.regionprops(image1)
+    img2_regions = measure.regionprops(image2)
+    centroid_dist = get_centroid_distances(img1_regions, img2_regions, maxCentroidDistance)
 
-        mean_patch_1 = np.mean(patch_1, dtype='int16')
-        mean_patch_2 = np.mean(patch_2, dtype='int16')
+    img1 = np.zeros(image1.shape, dtype=np.uint16)
+    img2 = np.zeros(image2.shape, dtype=np.uint16)
 
-        # Centering values after calculating mean
-        centered_patch_1 = patch_1 - mean_patch_1
-        centered_patch_2 = patch_2 - mean_patch_2
+    label = 1
+    totalPixels1 = 0
+    totalPixels2 = 0
+    for k, v in centroid_dist.items():
+        r1 = v['R1']
+        r2 = v['R2']
+        for c in r1.coords:
+            z,y,x = c
+            img1[z,y,x] = label
+            totalPixels1 += 1
+        for c in r2.coords:
+            z,y,x = c
+            img2[z,y,x] = label
+            totalPixels2 += 1
+        label += 1
 
-        numerator = np.inner(centered_patch_1, centered_patch_2) ** 2
+    if saveImages:
+        tiff.imwrite('/scratch/img1_matching_mask'+str(f)[0]+str(f)[2]+'.tif', img1)
+        tiff.imwrite('/scratch/img2_matching_mask'+str(f)[0]+str(f)[2]+'.tif', img2)
 
-        # Calculating 2-norm over centered patches - None means 2-norm
-        norm_patch_1 = np.linalg.norm(centered_patch_1, ord=None) ** 2
-        norm_patch_2 = np.linalg.norm(centered_patch_2, ord=None) ** 2
-
-        # Multiplicating norms
-        denominator = norm_patch_1 * norm_patch_2
-
-        return (numerator / denominator)
-
-def mutual_information(patch_1, patch_2
-    ) -> float:
-        """
-        Method to compute the mutual information error metric using numpy.
-        Note: Check the used dtype to reach a higher precision in the metric
-
-        Parameters
-        ------------------------
-        patch_1: ArrayLike
-            2D/3D patch of extracted from the image 1
-            and based on a windowed point.
-
-        patch_2: ArrayLike
-            2D/3D patch of extracted from the image 2
-            and based on a windowed point.
-
-        Returns
-        ------------------------
-        float
-            Float with the value of the mutual information score.
-        """
-
-        # # Compute the Mutual Information between the two image pixel distributions
-        # # using skimage
-        patch_1 = patch_1.flatten() 
-        patch_2 = patch_2.flatten() 
-        return mutual_info_score(patch_1, patch_2)
+    return (img1,img2)

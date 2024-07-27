@@ -1,0 +1,203 @@
+import numpy as np
+import tifffile as tiff
+from scipy.ndimage import affine_transform
+from aind_registration_evaluation.util.extract_roi import get_ROIs_cellpose, create_matching_mask
+
+class CellMasks():
+
+    def __init__(self,
+                 image1_mask,
+                 image2_mask,
+                 transformation_matrix=None,
+                 maxCentroidDistance=10):
+        '''
+        Initializes the CellMasks class with masks for two images, optionally applying a transformation to the second image mask.
+
+        Parameters
+        ------------------------
+        image1_mask: str or 3D numpy array
+            Path to the TIFF file or a 3D numpy array representing the mask for the first image.
+
+        image2_mask: str or 3D numpy array
+            Path to the TIFF file or a 3D numpy array representing the mask for the second image.
+
+        transformation_matrix: 4x4 numpy array, optional
+            An optional 4x4 transformation matrix to apply to the second image mask. If provided, the matrix will be inverted and used for affine transformation.
+
+        maxCentroidDistance: float, optional, default=10
+            Maximum allowed distance between centroids from the two images to consider them as matching.
+
+        Attributes
+        ------------------------
+        image1_mask: 3D numpy array
+            The mask for the first image, read from file or provided as an array.
+
+        image2_mask: 3D numpy array
+            The mask for the second image, read from file or provided as an array, transformed if a matrix is provided.
+
+        maxCentroidDistance: float
+            The maximum allowed distance between centroids for matching.
+
+        matching_patches: list of tuples or None
+            List of patches matching between the two images. Initialized to None.
+
+        num_img1_cells: int or None
+            Number of cells in the first image. Initialized to None.
+
+        num_img2_cells: int or None
+            Number of cells in the second image. Initialized to None.
+
+        num_matching_cells: int or None
+            Number of matching cells between the two images. Initialized to None.
+
+        image1_matching_mask: 3D numpy array or None
+            Mask of the first image with matched cells highlighted. Initialized to None.
+
+        image2_matching_mask: 3D numpy array or None
+            Mask of the second image with matched cells highlighted. Initialized to None.
+        '''
+
+        if isinstance(image1_mask, str): self.image1_mask = tiff.imread(image1_mask)
+        else: self.image1_mask = image1_mask
+
+        if isinstance(image2_mask, str): self.image2_mask = tiff.imread(image2_mask)
+        else: self.image2_mask = image2_mask
+
+        if transformation_matrix is not None:
+            transformation_matrix = self.args['transform_matrix']
+            inverse_matrix = np.linalg.inv(transformation_matrix)
+            self.image2_mask = affine_transform(self.image2_mask, inverse_matrix)
+
+        self.maxCentroidDistance = maxCentroidDistance
+
+        self.matching_patches = None
+        self.num_img1_cells = None
+        self.num_img2_cells = None
+        self.num_matching_cells = None
+        self.image1_matching_mask = None
+        self.image2_matching_mask = None
+
+
+    def get_matching(self, maxCentroidDistance):
+        '''
+        Computes or retrieves the matching cell patches between the two images, based on the centroid distance. It can optionally use a different distance threshold.
+        - If the matching patches and counts are not already computed and stored in the instance, the method calculates them using `get_ROIs_cellpose` with the provided or default `maxCentroidDistance`.
+        - If the `maxCentroidDistance` parameter is different from the instance's `maxCentroidDistance`, the method recalculates the matching patches with the new distance threshold.
+
+        Parameters
+        ------------------------
+        maxCentroidDistance: float, optional
+            The maximum distance allowed between centroids to consider them as matching. If provided, it overrides the instance's `maxCentroidDistance`.
+
+        Returns
+        ------------------------
+        resultDict: dict
+            A dictionary containing the following keys:
+            - 'NumImg1Cells': int
+                The number of cells identified in the first image.
+            - 'NumImg2Cells': int
+                The number of cells identified in the second image.
+            - 'maxCentroidDistance': float
+                The centroid distance threshold used for matching.
+            - 'NumMatchingCells': int
+                The number of matching cells between the two images.
+            - 'NumOfPatches': int
+                The number of patches created based on the cell matches.
+            - 'Patches': list of tuples
+                List of matching patches between the two images. Each patch is represented by a tuple containing coordinates.
+        '''
+        if (self.matching_patches is None or
+            self.num_img1_cells is None or
+            self.num_img2_cells is None or
+            self.num_matching_cells is None):
+
+            if maxCentroidDistance is not None and self.maxCentroidDistance != maxCentroidDistance:
+                matching_patches, num_img1_cells, num_img2_cells, num_matching_cells = (
+                    get_ROIs_cellpose(self.image1_mask, self.image2_mask, maxCentroidDistance)
+                )              
+
+            else:
+                matching_patches, num_img1_cells, num_img2_cells, num_matching_cells = (
+                    get_ROIs_cellpose(self.image1_mask, self.image2_mask, self.maxCentroidDistance)
+                )
+
+                self.matching_patches, self.num_img1_cells, self.num_img2_cells, self.num_matching_cells = matching_patches, num_img1_cells, num_img2_cells, num_matching_cells
+            
+        else:
+            if maxCentroidDistance is not None and self.maxCentroidDistance != maxCentroidDistance:
+                matching_patches, num_img1_cells, num_img2_cells, num_matching_cells = (
+                    get_ROIs_cellpose(self.image1_mask, self.image2_mask, maxCentroidDistance)
+                )
+            else:
+                matching_patches, num_img1_cells, num_img2_cells, num_matching_cells = self.matching_patches, self.num_img1_cells, self.num_img2_cells, self.num_matching_cells
+
+        resultDict = {
+            'NumImg1Cells': num_img1_cells,
+            'NumImg2Cells': num_img2_cells,
+            'maxCentroidDistance': maxCentroidDistance,
+            'NumMatchingCells': num_matching_cells,
+            'NumOfPatches': len(matching_patches),
+            'Patches': matching_patches
+        }
+
+        return resultDict
+
+
+
+    def get_matching_mask_images(self, maxCentroidDistance):
+        '''
+        Retrieves or computes the matching mask images for the two input images, based on the centroid distance. 
+        - If the matching masks are not already computed and stored in the instance, the method computes them using `create_matching_mask` with either the provided or default `maxCentroidDistance`.
+        - If the `maxCentroidDistance` parameter is different from the instance's `maxCentroidDistance`, the method recalculates the matching masks using the new distance threshold.
+        
+        Parameters
+        ------------------------
+        maxCentroidDistance: float, optional
+            The maximum distance allowed between centroids to consider them as matching. If provided and different from the instance's `maxCentroidDistance`, the method will recompute the masks with this new distance threshold.
+
+        Returns
+        ------------------------
+        image1_matching_mask: numpy.ndarray
+            The binary mask for the first image indicating the matching cells.
+
+        image2_matching_mask: numpy.ndarray
+            The binary mask for the second image indicating the matching cells.
+        '''
+        if (self.image1_matching_mask is None or self.image2_matching_mask is None):
+            if maxCentroidDistance is not None and maxCentroidDistance != self.maxCentroidDistance:
+                image1_matching_mask, image2_matching_mask = (
+                    create_matching_mask(self.image1_mask, self.image2_mask, maxCentroidDistance)
+                )
+            else:
+                image1_matching_mask, image2_matching_mask = (
+                    create_matching_mask(self.image1_mask, self.image2_mask, self.maxCentroidDistance)
+                )
+                self.image1_matching_mask, self.image2_matching_mask = image1_matching_mask, image2_matching_mask
+        else:
+            if maxCentroidDistance is not None and maxCentroidDistance != self.maxCentroidDistance:
+                image1_matching_mask, image2_matching_mask = (
+                    create_matching_mask(self.image1_mask, self.image2_mask, maxCentroidDistance)
+                )
+            else:
+                image1_matching_mask, image2_matching_mask = self.image1_matching_mask, self.image2_matching_mask
+        
+        return image1_matching_mask, image2_matching_mask
+
+
+
+
+        
+
+
+
+
+                
+
+                
+
+
+
+
+
+
+

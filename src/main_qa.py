@@ -23,10 +23,12 @@ from aind_registration_evaluation.util.intersection import \
     generate_overlap_slices
 from scipy.ndimage import affine_transform
 from aind_registration_evaluation.metric.small_scale import SmallImageMetrics
-from aind_registration_evaluation.util.extract_roi import get_ROIs, get_ROIs_cellpose, normalized_cross_correlation, normalized_mutual_information, mutual_information
+from aind_registration_evaluation.util.extract_roi import get_ROIs, get_ROIs_cellpose, get_ROIs_random_matching, normalized_cross_correlation, normalized_mutual_information, mutual_information
 import statsmodels.api as sm
 import tifffile as tiff
 from aind_registration_evaluation.io._io import ImageReaderFactory
+from sklearn.metrics import normalized_mutual_info_score
+from sklearn.metrics import mutual_info_score
 
 import concurrent.futures
 import dask
@@ -217,16 +219,6 @@ def calculate_central_value(data, central_type="mean", outlier_threshold=2):
 
     return central_value
 
-# @delayed
-def process_metric(pruned_point, metric, transform):
-    metric_name = metric.metric_type
-    point_metric = metric.calculate_metric(point=pruned_point, transform=transform)
-
-    if point_metric is not None:
-        return (metric_name, point_metric, pruned_point)
-    return None
-
-
 class EvalStitching(ArgSchemaParser):
     """
     Class to Evaluate Stitching.
@@ -292,7 +284,7 @@ class EvalStitching(ArgSchemaParser):
         pruned_points = sample.prune_points_to_fit_window(
             image_1_shape, points, self.args["window_size"]
         )
-
+        print("PrunedPoints: ", pruned_points)
         discarded_points_window = points.shape[0] - pruned_points.shape[0]
         LOGGER.info(
             f"Number of discarded points when prunning points to window: {discarded_points_window}",
@@ -313,27 +305,6 @@ class EvalStitching(ArgSchemaParser):
                     self.args["window_size"],
                 )
             )
-
-        # with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
-        #     futures = []
-        #     for pruned_point in pruned_points:
-        #         for metric in metrics:
-        #             futures.append(executor.submit(process_metric, pruned_point, metric, transform))
-        #     for future in concurrent.futures.as_completed(futures):
-        #         # result = future.result()
-        #         # if result is not None:
-        #         #     metric_name, point_metric, pruned_point = result
-        #         #     metrics_results[metric_name]["point_metric"].append(point_metric)
-        #         #     metrics_results[metric_name]["selected_points"].append(pruned_point)
-
-        #         try:
-        #             result = future.result()
-        #             if result is not None:
-        #                 metric_name, point_metric, pruned_point = result
-        #                 metrics_results[metric_name]["point_metric"].append(point_metric)
-        #                 metrics_results[metric_name]["selected_points"].append(pruned_point)
-        #         except Exception as e:
-        #             LOGGER.error(f"Error processing metric: {e}")
 
 
         for pruned_point in pruned_points:
@@ -381,64 +352,6 @@ class EvalStitching(ArgSchemaParser):
                 )
         
         return metrics_results
-
-    def run_roi(self, img1_binaryThreshold, img2_binaryThreshold, maxCentroidDistance, overlapThreshold):
-        # factory = ImageReaderFactory()
-        # reader_instance1 = factory.create(self.args['image_1'])
-        # reader_instance2 = factory.create(self.args['image_2'])
-        # image1 = reader_instance1.as_numpy_array()
-        # image2 = reader_instance1.as_numpy_array()
-
-        image1 = tiff.imread(self.args['image_1'])
-        image2 = tiff.imread(self.args['image_2'])
-
-
-        transformation_matrix = self.args['transform_matrix']
-        trans_image2 = affine_transform(image2, transformation_matrix)
-
-        # patch_coordinates = get_ROIs(image1, trans_image2, img1_binaryThreshold, img2_binaryThreshold, maxCentroidDistance, overlapThreshold)
-
-        #add the reading into cellpose
-        img1_cp = tiff.imread('/scratch/confocal_s0_cropped_dsLev1_cp.tif')
-        img2_cp = tiff.imread('/scratch/cortical_s0_cropped_dsLev1_cp.tif')
-        img2_cp_trans = affine_transform(img2_cp, transformation_matrix)
-        patch_coordinates = get_ROIs_cellpose(img1_cp, img2_cp_trans, maxCentroidDistance, overlapThreshold)
-
-        metrics_results = {"num_rois": 0}
-        # SMI = SmallImageMetrics(reader_instance1,reader_instance1, 'mi', 1)
-        metrics = [normalized_cross_correlation,mutual_information,normalized_mutual_information]
-
-        metrics_names = []
-        for m in self.args["metrics"]:
-            metrics_results[m] = {"selected_patch": [], "point_metric": [], 'weight': []}
-            metrics_names.append(m)
-            # metrics.append(SmallImageMetrics(reader_instance1,reader_instance1,m,1))
-
-
-        for r, vol in patch_coordinates.items():
-            metrics_results['num_rois'] += 1
-            for i, metric in enumerate(metrics):
-                res = metric(image1[r[0]:r[3],r[1]:r[4],r[2]:r[5]], trans_image2[r[0]:r[3],r[1]:r[4],r[2]:r[5]])
-                metrics_results[metrics_names[i]]['selected_patch'].append(r)
-                metrics_results[metrics_names[i]]['point_metric'].append(res)
-                metrics_results[metrics_names[i]]['weight'].append(vol)
-                
-
-        for m in metrics_names:
-            values = metrics_results[m]['point_metric']
-            weights = metrics_results[m]['weight']
-            weighted_stats = sm.stats.DescrStatsW(values, weights=weights)
-            metrics_results[m]['weighted_avg'] = weighted_stats.mean
-            metrics_results[m]['weighted_std'] = weighted_stats.std
-
-            message = f"""Computed metric: {m}
-            \nMean: {metrics_results[m]["weighted_avg"]}
-            \nStd: {metrics_results[m]["weighted_std"]}
-            \nNumROIs: {metrics_results["num_rois"]}"""
-            LOGGER.info(message)
-        return metrics_results
-            
-
 
     def run_misalignment(
         self,

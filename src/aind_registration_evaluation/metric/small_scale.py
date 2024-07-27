@@ -99,8 +99,29 @@ class SmallImageMetrics(ImageMetrics):
 
         point_1_windowed = windowed_points[0]
         point_2_windowed = windowed_points[1]
+        
+        img1 = self.image_1
+        img2 = self.image_2
 
-        # image_2_shape = self.image_2.shape
+        minPoints1 = [np.min(row) for row in point_1_windowed]
+        minPoints2 = [np.min(row) for row in point_2_windowed]          
+        maxPoints1 = [np.max(row) for row in point_1_windowed]
+        maxPoints2 = [np.max(row) for row in point_2_windowed]
+
+        # Calculate padding amounts
+        paddingMin1 = [abs(minPoints1[i]) + 1 if minPoints1[i] <= 0 else 0 for i in range(len(minPoints1))]
+        paddingMin2 = [abs(minPoints2[i]) + 1 if minPoints2[i] <= 0 else 0 for i in range(len(minPoints2))]
+        padding1 = [maxPoints1[i] - img1.shape[i] + 1 if maxPoints1[i] >= img1.shape[i] else 0 for i in range(len(maxPoints1))]
+        padding2 = [maxPoints2[i] - img2.shape[i] + 1 if maxPoints2[i] >= img2.shape[i] else 0 for i in range(len(maxPoints2))]
+
+        # Determine padding width for each dimension
+        pad_width1 = [(paddingMin1[i], padding1[i]) for i in range(len(padding1))]
+        pad_width2 = [(paddingMin2[i], padding2[i]) for i in range(len(padding2))]
+
+        # Pad the images
+        padded_img1 = np.pad(img1, pad_width=pad_width1, mode='constant', constant_values=0)
+        padded_img2 = np.pad(img2, pad_width=pad_width2, mode='constant', constant_values=0)
+
         len_dims = len(point_1_windowed)
 
         patch_1 = None
@@ -119,14 +140,14 @@ class SmallImageMetrics(ImageMetrics):
         # )
 
         if len_dims == 2:
-            patch_1 = self.image_1[point_1_windowed[0], point_1_windowed[1]]
-            patch_2 = self.image_2[point_2_windowed[0], point_2_windowed[1]]
+            patch_1 = padded_img1[point_1_windowed[0], point_1_windowed[1]]
+            patch_2 = padded_img2[point_2_windowed[0], point_2_windowed[1]]
 
         elif len_dims == 3:
-            patch_1 = self.image_1[
+            patch_1 = padded_img1[
                 point_1_windowed[0], point_1_windowed[1], point_1_windowed[2]
             ]
-            patch_2 = self.image_2[
+            patch_2 = padded_img2[
                 point_2_windowed[0], point_2_windowed[1], point_2_windowed[2]
             ]
         else:

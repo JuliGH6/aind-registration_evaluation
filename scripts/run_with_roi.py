@@ -39,8 +39,8 @@ def main():
     # prepareFiles(confocal, warpedCortical, 1, 1)
 
 
-    default_config["image_1"] = '/scratch/confocal_s0_cropped_downsampled_f2.tif'
-    default_config["image_2"] = '/scratch/cortical_s0_cropped_downsampled_f2.tif'
+    default_config["image_1"] = '/scratch/confocal_s0_cropped_dsLev1.tif'
+    default_config["image_2"] = '/scratch/cortical_s0_cropped_dsLev1.tif'
 
     mod = EvalStitching(default_config)
     time_start = time.time()
