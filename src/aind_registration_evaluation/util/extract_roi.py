@@ -81,21 +81,22 @@ def get_centroid_distances(props1, props2, distanceThreshold):
 def create_patches(distances, image_shape, overlapThreshold):
     '''
         - Creates a patch around each matched centroids by adding 3 pixels around the max coordinates of the patches (limited by image bounds).
-        - Merges the patches that show more overlap than the overlap threshold, to avoid duplicate evaluations on the same area.
+        - Merges the patches that show more overlap than the overlap threshold to avoid duplicate evaluations on the same area.
 
         Parameters
         ------------------------
-       distances: Dictionary of shape {distance:{'R1': p1, 'R2': p2,'addedDist': addedDist}}
-       
-       image_shape: shape of the two images must be the same. Either can be passed in the form Tuple(z,y,x)
+        distances: Dictionary of shape {distance:{'R1': p1, 'R2': p2,'addedDist': addedDist}}
+        
+        image_shape: shape of the two images must be the same. Either can be passed in the form Tuple(z,y,x)
 
-       overlapThreshold: volume overlap theshold above which two patches are merged to their max coordinates (float)
+        overlapThreshold: volume overlap theshold above which two patches are merged to their max coordinates (float)
 
         Returns
         ------------------------
         coordinates of the merged_patches (z_min, y_min, x_min, z_max, y_max, x_max)
     '''
     patches = []
+    #get bounding coordinates of each patch while staying within image shape
     for distance, info in distances.items():
         bbox1 = info['R1'].bbox
         bbox2 = info['R2'].bbox
@@ -108,17 +109,23 @@ def create_patches(distances, image_shape, overlapThreshold):
         patches.append((z_min, y_min, x_min, z_max, y_max, x_max))
     
     merged_patches = []
+    #when all patches added or merged, stop
     while patches:
         z_min, y_min, x_min, z_max, y_max, x_max = patches.pop(0)
         merged = False
         for i, (mz_min, my_min, mx_min, mz_max, my_max, mx_max) in enumerate(merged_patches):
+            #if there is overlap between two patches
             if not (z_max < mz_min or z_min > mz_max or y_max < my_min or y_min > my_max or x_max < mx_min or x_min > mx_max):
                 overlap_patch = (max(z_min, mz_min), max(y_min, my_min), max(x_min, mx_min), min(z_max, mz_max), min(y_max, my_max), min(x_max, mx_max))
                 max_patch = (min(z_min, mz_min), min(y_min, my_min), min(x_min, mx_min), max(z_max, mz_max), max(y_max, my_max), max(x_max, mx_max))
                 volume_overlap = (overlap_patch[3] - overlap_patch[0]) * (overlap_patch[4] - overlap_patch[1]) * (overlap_patch[5] - overlap_patch[2])
                 volume_max_patch = (max_patch[3] - max_patch[0]) * (max_patch[4] - max_patch[1]) * (max_patch[5] - max_patch[2])
+                #if the overlap is more than the given threshold -> merge the two patches into one
                 if volume_overlap/volume_max_patch > overlapThreshold:
                     merged_patches[i] = max_patch
+
+                    #if you merge within the final patches array, reevaluate all following patches if they (also) have a big overlap with the new merged patch
+                    #for that we remove them from the final array and append them back to the original patch array
                     if i<(len(merged_patches)-1):
                         patches += merged_patches[i+1:]
                         merged_patches = merged_patches[:i+1]
@@ -169,12 +176,11 @@ def create_random_patches(distances, image_1_shape):
         patches.append((coord1,coord2))
     return patches
 
-
-def get_ROIs(img1, img2, img1_binaryThreshold, img2_binaryThreshold, maxCentroidDistance, overlapThreshold):
+def get_ROIs_cellpose(img1, img2, maxCentroidDistance=10, make_mask=False, img1_binaryThreshold=0.05, img2_binaryThreshold=0.008,, overlapThreshold=0.3):
     '''
-    - Extracts regions of interest (ROIs) from two images based on their centroids and specified thresholds.
-    - Applies image processing steps to identify cells and match centroids between two images.
-    - Generates patches around matched centroids and computes their sizes.
+    - Extracts regions of interest (ROIs) from two images based on their centroids and a specified maximum centroid distance.
+    - Computes centroid distances between two images and creates patches around matched centroids.
+    - Generates a dictionary of patch coordinates and their corresponding volumes.
 
     Parameters
     ------------------------
@@ -183,6 +189,9 @@ def get_ROIs(img1, img2, img1_binaryThreshold, img2_binaryThreshold, maxCentroid
 
     img2: 3D numpy array
         The second image from which to extract cell properties.
+    
+    make_mask: bool
+        If true will create the mask based on the provided binary thresholds. Else it will interpret the given images as masks already
 
     img1_binaryThreshold: int
         Binary threshold for creating a binary image from the first image to identify bright areas.
@@ -208,52 +217,17 @@ def get_ROIs(img1, img2, img1_binaryThreshold, img2_binaryThreshold, maxCentroid
     len_img2_regions: int
         The number of regions identified in the second image.
 
-    len_distances: int
-        The number of centroid matches found between the two images.
-    '''
-    img1_props = get_props(img1, img1_binaryThreshold)
-    img2_props = get_props(img2, img2_binaryThreshold)
-    distances = get_centroid_distances(img1_props, img2_props, maxCentroidDistance)
-    patches = create_patches(distances, img1.shape, overlapThreshold)
-    patch_dict = {r: ((r[3]-r[0]) * (r[4]-r[1]) * (r[5]-r[2])) for r in patches}
-    return patch_dict, len(img1_regions), len(img2_regions), len(distances)
-
-def get_ROIs_cellpose(img1, img2, maxCentroidDistance):
-    '''
-    - Extracts regions of interest (ROIs) from two images based on their centroids and a specified maximum centroid distance.
-    - Computes centroid distances between two images and creates patches around matched centroids.
-    - Generates a dictionary of patch coordinates and their corresponding volumes.
-
-    Parameters
-    ------------------------
-    img1: 3D numpy array
-        The first image from which to extract cell properties.
-
-    img2: 3D numpy array
-        The second image from which to extract cell properties.
-
-    maxCentroidDistance: float
-        Maximum allowed distance between centroids from the two images to consider them as matching.
-
-    Returns
-    ------------------------
-    patch_dict: Dictionary
-        A dictionary where the keys are tuples representing the coordinates of the patches (z_min, y_min, x_min, z_max, y_max, x_max)
-        and the values are the volumes of these patches.
-
-    len_img1_regions: int
-        The number of regions identified in the first image.
-
-    len_img2_regions: int
-        The number of regions identified in the second image.
-
     len_cp_centroid_dist: int
         The number of centroid matches found between the two images based on the maximum centroid distance.
     '''
-    img1_regions = measure.regionprops(img1)
-    img2_regions = measure.regionprops(img2)
+    if make_mask:
+        img1_regions = get_props(img1, img1_binaryThreshold)
+        img2_regions = get_props(img2, img2_binaryThreshold)
+    else:
+        img1_regions = measure.regionprops(img1)
+        img2_regions = measure.regionprops(img2)
     cp_centroid_dist = get_centroid_distances(img1_regions, img2_regions, maxCentroidDistance)
-    cp_patches = create_patches(cp_centroid_dist, img1.shape, 0.3)
+    cp_patches = create_patches(cp_centroid_dist, img1.shape, overlapThreshold)
     patch_dict = {r: ((r[3]-r[0]) * (r[4]-r[1]) * (r[5]-r[2])) for r in cp_patches}
     return patch_dict, len(img1_regions), len(img2_regions), len(cp_centroid_dist)
 
