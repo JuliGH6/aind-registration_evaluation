@@ -1,7 +1,8 @@
 import numpy as np
 import tifffile as tiff
 from scipy.ndimage import affine_transform
-from aind_registration_evaluation.util.extract_roi import get_ROIs_cellpose, create_matching_mask
+from aind_registration_evaluation.util.extract_roi import get_ROIs_cellpose, create_matching_mask, get_centroid_distances
+from skimage import measure
 
 class CellMasks():
 
@@ -182,6 +183,40 @@ class CellMasks():
                 image1_matching_mask, image2_matching_mask = self.image1_matching_mask, self.image2_matching_mask
         
         return image1_matching_mask, image2_matching_mask
+
+    def matching_cells_by_distance_plot(self):
+        """
+        Plots the number of matching cells as a function of the centroid distance threshold.
+
+        This method calculates the number of cell matches between the masks of two images
+        for different centroid distance thresholds and returns the results for plotting.
+
+        Returns
+        -------
+        centroid_distances : list of int
+            List of centroid distance thresholds used for matching.
+        
+        num_of_matches : list of int
+            List of the number of matches corresponding to each centroid distance threshold.
+        
+        min_cells : int
+            The minimum number of cells between the two images.
+        """
+        # Extract region properties
+        img1_regions = measure.regionprops(self.image1_mask)
+        img2_regions = measure.regionprops(self.image2_mask)
+
+        # Initialize lists for storing results
+        centroid_distances = list(range(4, 70, 2))
+        num_of_matches = []
+
+        # Calculate number of matches for each centroid distance
+        for i in centroid_distances:   
+            cp_centroid_dist = get_centroid_distances(img1_regions, img2_regions, i)
+            num_of_matches.append(len(cp_centroid_dist))
+
+        return centroid_distances, num_of_matches, min(len(img1_regions),len(img2_regions))
+
 
 
 

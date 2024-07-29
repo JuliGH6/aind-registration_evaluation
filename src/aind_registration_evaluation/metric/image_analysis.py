@@ -5,8 +5,12 @@ from sklearn.metrics import normalized_mutual_info_score
 import statsmodels.api as sm
 import pandas as pd
 import os
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 from aind_registration_evaluation.metric.cell_masks import CellMasks
+import matplotlib.pyplot as plt
+import io
+from openpyxl.drawing.image import Image
+from datetime import datetime
 
 
 class ImageAnalysis():
@@ -22,7 +26,8 @@ class ImageAnalysis():
                  full_image=True, 
                  roi_patches=True, 
                  full_image_matching_mask=True, 
-                 roi_patches_matching_mask=True, 
+                 roi_patches_matching_mask=True,
+                 num_matches_plot=True, 
                  nmi=True, 
                  mi=True):
         '''
@@ -66,6 +71,9 @@ class ImageAnalysis():
         roi_patches_matching_mask: bool, optional, default=True
             If True, the analysis will include ROI patches matching masks.
 
+        num_matches_plot: bool, optional, default=True
+            If True, the analysis will include the plot of matching cells by centroid distance
+
         nmi: bool, optional, default=True
             If True, the analysis will include normalized mutual information (NMI) as a metric.
 
@@ -73,11 +81,19 @@ class ImageAnalysis():
             If True, the analysis will include mutual information (MI) as a metric.
         '''
 
-        if isinstance(image1, str): self.image1 = tiff.imread(image1)
-        else: self.image1 = image1
+        if isinstance(image1, str): 
+            self.image1 = tiff.imread(image1)
+            self.image1_path = image1
+        else: 
+            self.image1 = image1
+            self.image1_path = None
 
-        if isinstance(image2, str): self.image2 = tiff.imread(image2)
-        else: self.image2 = image2
+        if isinstance(image2, str): 
+            self.image2 = tiff.imread(image2)
+            self.image2_path = image2
+        else: 
+            self.image2 = image2
+            self.image2_path = None
 
         self.cell_masks = CellMasks(image1_mask, image2_mask, transformation_matrix, maxCentroidDistance)
 
@@ -92,8 +108,11 @@ class ImageAnalysis():
         self.roi_patches = roi_patches
         self.full_image_matching_mask = full_image_matching_mask
         self.roi_patches_matching_mask = roi_patches_matching_mask
+        self.num_matches_plot = num_matches_plot
         self.nmi = nmi
         self.mi = mi
+
+        self.matching_cell_plot = None
 
     def run_cell_match_count(self, maxCentroidDistance=None):
         '''
@@ -110,6 +129,31 @@ class ImageAnalysis():
             A dictionary containing the number of cells in each image, the number of matching cells, and the patches with their volumes.
         '''
         return self.cell_masks.get_matching(maxCentroidDistance)
+
+    def create_cell_match_plot(self):
+        """
+        Creates and returns a plot showing the number of cell matches as a function of the centroid distance threshold.
+
+        If the plot has already been created, it simply returns the existing plot.
+
+        Returns
+        -------
+        plt : matplotlib.pyplot
+            The plot object showing the number of matches vs. centroid distance.
+        """
+        if self.matching_cell_plot is None:
+            distances, num_matching_cells, max_matches = self.cell_masks.matching_cells_by_distance_plot()
+            
+            y = [n/max_matches for n in num_matching_cells]
+            plt.plot(distances, y, marker='o')
+            plt.xlabel('Centroid Distance')
+            plt.ylabel('Number of Matches ')
+            plt.title('Number of Matches vs Centroid Distance')
+            plt.grid(True)
+
+            self.matching_cell_plot = plt
+
+        return self.matching_cell_plot
 
 
     def run_full_image(self, img1=None, img2=None, normalize=True, applyMask=True):
@@ -382,7 +426,7 @@ class ImageAnalysis():
         '''
         # Dictionary to store results
         results = {}
-        
+
         if self.full_image:
             full_image_results = self.run_full_image()
             results["Full Image"] = {
@@ -416,6 +460,17 @@ class ImageAnalysis():
         # Create a DataFrame from the results dictionary
         df_results = pd.DataFrame(results).T
 
+        if self.image1_path and self.image2_path:
+            filenames = {
+                " ": [""] * len(df_results),
+                "  ": [""] * len(df_results),
+                "Image1 path": [self.image1_path] + [""] * (len(df_results)-1),
+                "Image2 path": [self.image2_path] + [""] * (len(df_results)-1),
+            }
+            df_filenames = pd.DataFrame(filenames, index=df_results.index)
+            df_results = pd.concat([df_results, df_filenames], axis=1)
+
+
         # Create DataFrame for additional metrics
         if self.cell_match_count:
             cell_match_count_results = self.run_cell_match_count(maxCentroidDistance=maxCentroidDistance)
@@ -428,53 +483,63 @@ class ImageAnalysis():
                 "# Matching Cells": [cell_match_count_results.get('NumMatchingCells', None)] + [""] * (len(df_results)-1),
             }
             df_additional_metrics = pd.DataFrame(additional_metrics, index=df_results.index)
-
-            # Concatenate the results DataFrame with the additional metrics
             df_results = pd.concat([df_results, df_additional_metrics], axis=1)
 
-        # # Save to Excel
-        # if os.path.exists(file_path):
-        #     # Load the existing workbook and add two empty rows
-        #     wb = load_workbook(file_path)
-        #     writer = pd.ExcelWriter(file_path, engine='openpyxl')
-        #     writer.book = wb
-        #     writer.sheets = {ws.title: ws for ws in wb.worksheets}
-            
-        #     # Add two empty rows before writing new results
-        #     for sheet in writer.sheets.values():
-        #         sheet.append([])
-        #         sheet.append([])
-        # else:
-        #     # Create a new Excel file if it doesn't exist
-        #     writer = pd.ExcelWriter(file_path, engine='xlsxwriter')
-        
-        # # Write the DataFrame to the Excel file
-        # df_results.to_excel(writer, sheet_name='Results', index_label='Category')
+        new_sheet_name = 'Plot_' + datetime.now().strftime('%Y%m%d_%H%M%S')
+        if self.num_matches_plot:
+            sheet_info = {
+                " ": [""] * len(df_results),
+                "  ": [""] * len(df_results),
+                "Plot Sheet Name": [new_sheet_name] + [""] * (len(df_results)-1)
+            }
+            df_sheet_info = pd.DataFrame(sheet_info, index=df_results.index)
+            df_results = pd.concat([df_results, df_sheet_info], axis=1)
 
-        # # Save the Excel file
-        # writer.close()
-
-        # Save to Excel
-    # Check if file exists
         if os.path.exists(file_path):
-            try:
-                # Load the existing workbook
-                wb = load_workbook(file_path)
-                ws = wb.active
-
-                # Find the last row and add two empty rows
-                last_row = ws.max_row + 1
-                for _ in range(2):
-                    ws.append([])
-
-                # Write the DataFrame to the existing Excel file
-                with pd.ExcelWriter(file_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
-                    df_results.to_excel(writer, sheet_name='Results', startrow=last_row, index_label='Category', header=False)
-
-            except Exception as e:
-                print(f"Error loading existing Excel file: {e}")
-
+            # Load the existing workbook
+            book = load_workbook(file_path)
+            
+            # Get the 'Results' sheet
+            if 'Results' in book.sheetnames:
+                sheet = book['Results']
+                start_row = sheet.max_row + 2
+            else:
+                sheet = book.create_sheet('Results')
+                start_row = 1
         else:
-            # Create a new Excel file if it doesn't exist
-            with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
-                df_results.to_excel(writer, sheet_name='Results', index_label='Category')
+            # Create a new workbook if the file doesn't exist
+            book = Workbook()
+            sheet = book.active
+            sheet.title = 'Results'
+            start_row = 1
+
+        sheet.cell(row=start_row, column=1, value="Metric")  # Add row name header
+        for c_idx, col_name in enumerate(df_results.columns, start=2):
+            sheet.cell(row=start_row, column=c_idx, value=col_name)
+        start_row += 1
+
+        # Write data including row names
+        for r_idx, (row_name, row) in enumerate(df_results.iterrows(), start=start_row):
+            sheet.cell(row=r_idx, column=1, value=row_name)  # Write row name
+            for c_idx, value in enumerate(row, start=2):
+                sheet.cell(row=r_idx, column=c_idx, value=value)
+
+        if self.num_matches_plot:
+            p = self.create_cell_match_plot()
+
+            # Save the plot to a BytesIO object
+            img_buffer = io.BytesIO()
+            p.savefig(img_buffer, format='png')
+            img_buffer.seek(0)
+            p.close()
+
+            # Create a new sheet for the plot
+            plot_sheet = book.create_sheet(title=new_sheet_name)
+            img = Image(img_buffer)
+            img.anchor = 'A1'
+            plot_sheet.add_image(img)
+
+        book.save(file_path)
+
+
+
