@@ -28,6 +28,7 @@ class ImageAnalysis():
                  full_image_matching_mask=True, 
                  roi_patches_matching_mask=True,
                  num_matches_plot=True, 
+                 show_image=True,
                  nmi=True, 
                  mi=True):
         '''
@@ -74,6 +75,9 @@ class ImageAnalysis():
         num_matches_plot: bool, optional, default=True
             If True, the analysis will include the plot of matching cells by centroid distance
 
+        show_image: bool, optional, default=True
+            If True, the analysis will include an image of the aligned images
+
         nmi: bool, optional, default=True
             If True, the analysis will include normalized mutual information (NMI) as a metric.
 
@@ -109,10 +113,13 @@ class ImageAnalysis():
         self.full_image_matching_mask = full_image_matching_mask
         self.roi_patches_matching_mask = roi_patches_matching_mask
         self.num_matches_plot = num_matches_plot
+        self.show_image = show_image
         self.nmi = nmi
         self.mi = mi
 
         self.matching_cell_plot = None
+        self.aligned_image = None
+        
 
     def run_cell_match_count(self, maxCentroidDistance=None):
         '''
@@ -156,6 +163,53 @@ class ImageAnalysis():
         return self.matching_cell_plot
 
 
+    def create_aligned_image(self):
+        """
+        Creates and returns a plot of an aligned image, showing the middle slice of two images overlaid in RGB.
+
+        The function overlays the middle slice of `image1` and `image2`, normalizing each slice to the range [0, 1].
+        The first channel of the RGB image corresponds to the normalized `image1`, and the second channel corresponds to the normalized `image2`.
+
+        If the plot has already been created, it simply returns the existing plot.
+
+        Raises
+        ------
+        ValueError
+            If `image1` and `image2` do not have the same shape.
+
+        Returns
+        -------
+        plt : matplotlib.pyplot
+            The plot object showing the aligned middle slice of the images in RGB.
+        """
+        if self.aligned_image is None:
+            if self.image1.shape != self.image2.shape:
+                raise ValueError("Images must have the same shape.")
+
+            z_middle = self.image1.shape[0] // 2
+
+            slice1 = self.image1[z_middle]
+            slice2 = self.image2[z_middle]
+
+            slice1_norm = (slice1 - np.min(slice1)) / (np.max(slice1) - np.min(slice1))
+            slice2_norm = (slice2 - np.min(slice2)) / (np.max(slice2) - np.min(slice2))
+
+            rgb_image = np.zeros((slice1.shape[0], slice1.shape[1], 3), dtype=np.float32)
+
+            rgb_image[..., 0] = slice1_norm
+
+            rgb_image[..., 1] = slice2_norm
+
+            plt.imshow(rgb_image)
+            plt.title(f'Slice {z_middle}')
+            plt.axis('off')
+
+            self.aligned_image = plt
+
+        return self.aligned_image
+
+
+
     def run_full_image(self, img1=None, img2=None, normalize=True, applyMask=True):
         '''
         Computes mutual information (MI) and normalized mutual information (NMI) between two images.
@@ -191,11 +245,11 @@ class ImageAnalysis():
 
         flat_1 = img1_eval.flatten()
         flat_2 = img2_eval.flatten()
-
+        
         if normalize:
             if self.mi: rand_scores_mi = []
             if self.nmi: rand_scores_nmi = []
-            for i in range(10):
+            for i in range(5):
                 rand_1 = np.random.permutation(flat_1)
                 rand_2 = np.random.permutation(flat_2)
                 
@@ -323,7 +377,7 @@ class ImageAnalysis():
         result_dict : dict
             A dictionary containing the weighted average and standard deviation of MI and NMI scores for the ROI patches.
         '''
-        return self.run_patches(maxCentroidDistance=maxCentroidDistance, normalize=False)
+        return self.run_patches(maxCentroidDistance=maxCentroidDistance, normalize=False, applyMask=False)
 
     
     def run_full_image_matching_mask(self, maxCentroidDistance=None):
@@ -387,31 +441,44 @@ class ImageAnalysis():
         - Full Image on Matching Mask: Prints MI and NMI metrics for full images using the matching masks.
         - ROI Patches on Matching Mask: Prints MI and NMI metrics for ROI patches using the matching masks.
         '''
+        results = {}
         if self.cell_match_count:
             print('\n')
             print("Cell Match count")
-            print(self.run_cell_match_count(maxCentroidDistance=maxCentroidDistance))
+            res = self.run_cell_match_count(maxCentroidDistance=maxCentroidDistance)
+            print(res)
+            results['Cell Match Count'] = res
             print('\n')
         if self.full_image:
             print('\n')
             print("Full Image")
-            print(self.run_full_image())
+            res = self.run_full_image()
+            print(res)
+            results['Full Image'] = res
             print('\n')
         if self.roi_patches:
             print('\n')
             print("ROI Patches:")
-            print(self.run_roi_patches(maxCentroidDistance=maxCentroidDistance))
+            res = self.run_roi_patches(maxCentroidDistance=maxCentroidDistance)
+            print(res)
+            results['ROI Patches'] = res
             print('\n')
         if self.full_image_matching_mask:
             print('\n')
             print("Full Image on Matching Mask:")
-            print(self.run_full_image_matching_mask(maxCentroidDistance=maxCentroidDistance))
+            res = self.run_full_image_matching_mask(maxCentroidDistance=maxCentroidDistance)
+            print(res)
+            results["Full Image Matching Mask"] = res
             print('\n')
         if self.roi_patches_matching_mask:
             print('\n')
             print("ROI Patches on Matching Mask:")
-            print(self.run_roi_patches_matching_mask(maxCentroidDistance=maxCentroidDistance))
+            res = self.run_roi_patches_matching_mask(maxCentroidDistance=maxCentroidDistance)
+            print(res)
+            results["ROI Patches Matching Mask"] = res
             print('\n')
+
+        return results
     
     def run_to_excel(self, maxCentroidDistance=None, file_path='/results/results.xlsx'):
         '''
@@ -428,6 +495,7 @@ class ImageAnalysis():
         results = {}
 
         if self.full_image:
+            print("Start Full image")
             full_image_results = self.run_full_image()
             results["Full Image"] = {
                 "MI": full_image_results.get('MI', None),
@@ -437,6 +505,7 @@ class ImageAnalysis():
             }
             
         if self.roi_patches:
+            print("Start ROI")
             roi_patches_results = self.run_roi_patches(maxCentroidDistance=maxCentroidDistance)
             results["ROI Patches"] = {
                 "MI": roi_patches_results.get('WeightedAvgMI', None),
@@ -444,6 +513,7 @@ class ImageAnalysis():
             }
             
         if self.full_image_matching_mask:
+            print("Start Full image on matching mask")
             full_image_mask_results = self.run_full_image_matching_mask(maxCentroidDistance=maxCentroidDistance)
             results["Full Image on Matching Mask"] = {
                 "MI": full_image_mask_results.get('MI', None),
@@ -451,6 +521,7 @@ class ImageAnalysis():
             }
             
         if self.roi_patches_matching_mask:
+            print("Start ROI on matching mask")
             roi_patches_mask_results = self.run_roi_patches_matching_mask(maxCentroidDistance=maxCentroidDistance)
             results["ROI Patches on Matching Mask"] = {
                 "MI": roi_patches_mask_results.get('WeightedAvgMI', None),
@@ -473,6 +544,7 @@ class ImageAnalysis():
 
         # Create DataFrame for additional metrics
         if self.cell_match_count:
+            print("Start Cell match count")
             cell_match_count_results = self.run_cell_match_count(maxCentroidDistance=maxCentroidDistance)
             additional_metrics = {
                 " ": [""] * len(df_results),
@@ -538,6 +610,23 @@ class ImageAnalysis():
             img = Image(img_buffer)
             img.anchor = 'A1'
             plot_sheet.add_image(img)
+
+        if self.show_image:
+            i = self.create_aligned_image()
+
+            img_buffer = io.BytesIO()
+            i.savefig(img_buffer, format='png')
+            img_buffer.seek(0)
+            i.close()
+
+            # Create a new sheet for the plot
+            if new_sheet_name in book.sheetnames: plot_sheet = book[new_sheet_name]
+            else: plot_sheet = book.create_sheet(title=new_sheet_name)
+            
+            img = Image(img_buffer)
+            img.anchor = 'L1'
+            plot_sheet.add_image(img)
+            
 
         book.save(file_path)
 
