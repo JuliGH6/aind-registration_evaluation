@@ -99,6 +99,16 @@ class ImageAnalysis():
             self.image2 = image2
             self.image2_path = None
 
+        self.image1 = self.image1.astype(np.int16)
+        self.image2 = self.image2.astype(np.int16)
+        print('Shape:', self.image1.shape, self.image2.shape)
+
+        min_shape = np.minimum(self.image1.shape, self.image2.shape)
+    
+        # Clip both arrays to the smaller size
+        self.image1 = self.image1[:min_shape[0], :min_shape[1], :min_shape[2]]
+        self.image2 = self.image2[:min_shape[0], :min_shape[1], :min_shape[2]]
+
         self.cell_masks = CellMasks(image1_mask, image2_mask, transformation_matrix, maxCentroidDistance)
 
         if transformation_matrix is not None:

@@ -64,6 +64,12 @@ class CellMasks():
         if isinstance(image2_mask, str): self.image2_mask = tiff.imread(image2_mask)
         else: self.image2_mask = image2_mask
 
+        min_shape = np.minimum(self.image1_mask.shape, self.image2_mask.shape)
+    
+        # Clip both arrays to the smaller size
+        self.image1_mask = self.image1_mask[:min_shape[0], :min_shape[1], :min_shape[2]]
+        self.image2_mask = self.image2_mask[:min_shape[0], :min_shape[1], :min_shape[2]]
+
         if transformation_matrix is not None:
             transformation_matrix = self.args['transform_matrix']
             inverse_matrix = np.linalg.inv(transformation_matrix)
