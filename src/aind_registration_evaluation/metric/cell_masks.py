@@ -71,9 +71,10 @@ class CellMasks():
         self.image2_mask = self.image2_mask[:min_shape[0], :min_shape[1], :min_shape[2]]
 
         if transformation_matrix is not None:
-            transformation_matrix = self.args['transform_matrix']
+            self.transformation_matrix = transformation_matrix
             inverse_matrix = np.linalg.inv(transformation_matrix)
             self.image2_mask = affine_transform(self.image2_mask, inverse_matrix)
+        else: self.transformation_matrix = None
 
         self.maxCentroidDistance = maxCentroidDistance
 
@@ -144,7 +145,8 @@ class CellMasks():
             'maxCentroidDistance': maxCentroidDistance,
             'NumMatchingCells': num_matching_cells,
             'NumOfPatches': len(matching_patches),
-            'Patches': matching_patches
+            'Patches': matching_patches,
+            'MatchingValue': (num_matching_cells**2/(num_img1_cells*num_img2_cells))
         }
 
         return resultDict
@@ -213,7 +215,7 @@ class CellMasks():
         img2_regions = measure.regionprops(self.image2_mask)
 
         # Initialize lists for storing results
-        centroid_distances = list(range(4, 70, 2))
+        centroid_distances = list(range(0, 50, 2))
         num_of_matches = []
 
         # Calculate number of matches for each centroid distance
@@ -221,7 +223,7 @@ class CellMasks():
             cp_centroid_dist = get_centroid_distances(img1_regions, img2_regions, i)
             num_of_matches.append(len(cp_centroid_dist))
 
-        return centroid_distances, num_of_matches, min(len(img1_regions),len(img2_regions))
+        return centroid_distances, num_of_matches, len(img1_regions), len(img2_regions)
 
 
 

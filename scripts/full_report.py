@@ -35,25 +35,34 @@ def main(cell_match_count=True, full_image=True, roi_patches=True, full_image_ma
     )
 
     client = Client(cluster)
-    path1 = '/root/capsule/data/693124_coregistration/confocal_s0_cropped_dsLev1.tif'
-    path2 = '/root/capsule/data/693124_coregistration/cortical_s0_cropped_dsLev1.tif'
-    m_path1 = '/root/capsule/data/693124_coregistration/confocal_s0_cropped_dsLev1_cp_masks.tif'
-    m_path2 = '/root/capsule/data/693124_coregistration/cortical_s0_cropped_dsLev1_cp_masks.tif'
+    path1 = '/root/capsule/data/718431_coregistration/confocal_s0_cropped_dsLev2.tif'
+    path2 = '/root/capsule/data/718431_coregistration/cortical_s0_cropped_dsLev2.tif'
+    m_path1 = '/root/capsule/data/718431_coregistration/confocal_s0_cropped_dsLev2_cp_masks.tif'
+    m_path2 = '/root/capsule/data/718431_coregistration/cortical_s0_cropped_dsLev2_cp_masks.tif'
+
+    matrix = [
+        [1,0,0,0],
+        [0,1,0,0],
+        [0,0,1,0],
+        [0,0,0,1]
+    ]
 
     IA = ImageAnalysis(
         image1 = path1, 
         image2 = path2,
         image1_mask = m_path1,
         image2_mask = m_path2,
-        transformation_matrix=None,
+        transformation_matrix=matrix,
         maxCentroidDistance=10,
         cell_match_count=True, 
         full_image=True, 
         roi_patches=True, 
         full_image_matching_mask=True,
-        roi_patches_matching_mask=True, 
+        roi_patches_matching_mask=True,
+        num_matches_plot=False, 
+        show_image=False,
         nmi=True, 
-        mi=True
+        mi=False
     )
 
     IA.run_to_excel(maxCentroidDistance=10)

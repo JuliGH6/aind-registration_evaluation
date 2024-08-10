@@ -2,6 +2,7 @@ import tifffile as tiff
 import numpy as np
 from sklearn.metrics import mutual_info_score
 from sklearn.metrics import normalized_mutual_info_score
+from scipy.ndimage import affine_transform
 import statsmodels.api as sm
 import pandas as pd
 import os
@@ -105,17 +106,16 @@ class ImageAnalysis():
 
         min_shape = np.minimum(self.image1.shape, self.image2.shape)
     
-        # Clip both arrays to the smaller size
         self.image1 = self.image1[:min_shape[0], :min_shape[1], :min_shape[2]]
         self.image2 = self.image2[:min_shape[0], :min_shape[1], :min_shape[2]]
 
         self.cell_masks = CellMasks(image1_mask, image2_mask, transformation_matrix, maxCentroidDistance)
 
         if transformation_matrix is not None:
-            transformation_matrix = self.args['transform_matrix']
+            self.transformation_matrix = transformation_matrix
             inverse_matrix = np.linalg.inv(transformation_matrix)
             self.image2 = affine_transform(self.image2, inverse_matrix)
-            self.image2_mask = affine_transform(self.image2_mask, inverse_matrix)
+        else: self.transformation_matrix = None
 
         self.cell_match_count = cell_match_count
         self.full_image = full_image
@@ -149,24 +149,42 @@ class ImageAnalysis():
 
     def create_cell_match_plot(self):
         """
-        Creates and returns a plot showing the number of cell matches as a function of the centroid distance threshold.
+        Creates and returns a plot showing both the absolute and relative number of cell matches 
+        as a function of the centroid distance threshold.
 
         If the plot has already been created, it simply returns the existing plot.
 
         Returns
-        -------
+        ------------------------
         plt : matplotlib.pyplot
-            The plot object showing the number of matches vs. centroid distance.
+            The plot object showing both absolute and relative matches vs. centroid distance.
         """
         if self.matching_cell_plot is None:
-            distances, num_matching_cells, max_matches = self.cell_masks.matching_cells_by_distance_plot()
-            
-            y = [n/max_matches for n in num_matching_cells]
-            plt.plot(distances, y, marker='o')
-            plt.xlabel('Centroid Distance')
-            plt.ylabel('Number of Matches ')
-            plt.title('Number of Matches vs Centroid Distance')
-            plt.grid(True)
+            distances, num_matching_cells, num_cells1, num_cells2 = self.cell_masks.matching_cells_by_distance_plot()
+            max_matches = min(num_cells1, num_cells2)
+
+            # Create the figure and the primary y-axis
+            fig, ax1 = plt.subplots()
+
+            # Plot absolute matches
+            y_absolute = [n/max_matches for n in num_matching_cells]
+            ax1.plot(distances, y_absolute, marker='o', color='blue', label='Absolute Matches')
+            ax1.set_xlabel('Centroid Distance Threshold')
+            ax1.set_ylabel('Number of Matches / Possible Number of Matches', color='blue')
+            ax1.tick_params(axis='y', labelcolor='blue')
+
+            # Create the secondary y-axis
+            ax2 = ax1.twinx()
+
+            # Plot relative matches
+            y_relative = [(n**2/(num_cells1*num_cells2)) for n in num_matching_cells]
+            ax2.plot(distances, y_relative, marker='s', color='firebrick', label='Relative Matches')
+            ax2.set_ylabel('NumCellMatches**2 / (NumCells1 * NumCells2)', color='firebrick')
+            ax2.tick_params(axis='y', labelcolor='firebrick')
+
+            # Set title and grid
+            plt.title('Cell Matches vs Centroid Distance')
+            ax1.grid(True)
 
             self.matching_cell_plot = plt
 
@@ -183,12 +201,12 @@ class ImageAnalysis():
         If the plot has already been created, it simply returns the existing plot.
 
         Raises
-        ------
+        ------------------------
         ValueError
             If `image1` and `image2` do not have the same shape.
 
         Returns
-        -------
+        ------------------------
         plt : matplotlib.pyplot
             The plot object showing the aligned middle slice of the images in RGB.
         """
@@ -563,6 +581,7 @@ class ImageAnalysis():
                 "Image2 # Cells": [cell_match_count_results.get('NumImg2Cells', None)] + [""] * (len(df_results)-1),
                 "Max Centroid Distance": [cell_match_count_results.get('maxCentroidDistance', None)] + [""] * (len(df_results)-1),
                 "# Matching Cells": [cell_match_count_results.get('NumMatchingCells', None)] + [""] * (len(df_results)-1),
+                "Cell Match Value": [cell_match_count_results.get('MatchingValue', None)] + [""] * (len(df_results)-1)
             }
             df_additional_metrics = pd.DataFrame(additional_metrics, index=df_results.index)
             df_results = pd.concat([df_results, df_additional_metrics], axis=1)
@@ -620,6 +639,7 @@ class ImageAnalysis():
             img = Image(img_buffer)
             img.anchor = 'A1'
             plot_sheet.add_image(img)
+
 
         if self.show_image:
             i = self.create_aligned_image()

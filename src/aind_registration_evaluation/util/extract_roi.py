@@ -320,7 +320,7 @@ def create_matching_mask(image1 , image2, maxCentroidDistance, saveImages=False)
         label += 1
 
     if saveImages:
-        tiff.imwrite('/scratch/img1_matching_mask'+str(f)[0]+str(f)[2]+'.tif', img1)
-        tiff.imwrite('/scratch/img2_matching_mask'+str(f)[0]+str(f)[2]+'.tif', img2)
+        tiff.imwrite('/scratch/img1_matching_mask.tif', img1)
+        tiff.imwrite('/scratch/img2_matching_mask.tif', img2)
 
     return (img1,img2)
